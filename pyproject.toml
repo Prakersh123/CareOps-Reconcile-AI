@@ -1,0 +1,30 @@
+[project]
+name = "careops"
+version = "0.1.0"
+description = "Multi-agent investigator that reconciles lab orders and billing across fragmented sources via Zetaris"
+readme = "README.md"
+authors = [
+    { name = "prakersh.dilipkumar", email = "prakersh.dilipkumar@tnqtech.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.28.1",
+    "langchain>=1.4.7",
+    "langchain-openai>=1.7.2",
+    "langgraph>=1.2.16",
+    "langsmith>=0.14.12",
+    "pydantic>=2.14.1",
+    "python-dotenv>=1.2.4",
+]
+
+[project.scripts]
+careops = "careops:main"
+
+[build-system]
+requires = ["uv_build>=0.12.21,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]

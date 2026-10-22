@@ -1,0 +1,11 @@
+# secrets
+.env
+
+# python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# run artefacts
+logs/
