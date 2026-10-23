@@ -2,12 +2,15 @@ import json
 import logging
 import operator
 import time
+from datetime import datetime
 from typing import Annotated, TypedDict
 
 from langchain.messages import HumanMessage
 from langgraph.graph import END, START, StateGraph
 
-from careops.critic_agent import CriticVerdict, collect_retrieved_data, review
+from careops import careops_world
+from careops.critic_agent import CriticIssue, CriticVerdict, collect_retrieved_data, review
+from careops.critic_checks import check_findings
 from careops.investigator_agent import investigator_agent
 from careops.logging_setup import setup_logging
 
@@ -40,6 +43,9 @@ def _log_findings(findings: str) -> None:
 
 def investigate(state: InvestigationState) -> dict:
         attempt = state["attempt"] + 1
+        run_world = careops_world.current()
+        if run_world:
+                run_world.start_attempt(attempt)
         if state["attempt"] == 0:
                 log.info("=== ATTEMPT %d/%d: investigator starts", attempt, MAX_ATTEMPTS)
                 message = state["request"]
@@ -64,12 +70,30 @@ def investigate(state: InvestigationState) -> dict:
         retrieved = collect_retrieved_data(result["messages"])
         log.info("investigator done in %.1fs: %d data request(s)", time.monotonic() - started, len(retrieved))
         _log_findings(findings)
+        if run_world:
+                run_world.record_findings(findings)
         return {"findings": findings, "retrieved": retrieved, "attempt": attempt}
 
 
 def critique(state: InvestigationState) -> dict:
         log.info("=== CRITIC reviews attempt %d", state["attempt"])
-        verdict = review(state["request"], state["retrieved"], state["findings"])
+        run_world = careops_world.current()
+        verdict = None
+        if run_world:
+                # Deterministic checks against the World Model register first. A failure here
+                # is certain, so the slower LLM critic is skipped and the issues go straight back.
+                code_issues = check_findings(state["findings"], run_world.world)
+                if code_issues:
+                        log.info("code checks: %d issue(s); skipping LLM critic", len(code_issues))
+                        for issue in code_issues:
+                                log.info("  - [%s] %s: %s", issue["check"], issue["order_id"], issue["problem"])
+                        verdict = CriticVerdict(verdict="RETRY", issues=[CriticIssue(**i) for i in code_issues])
+                else:
+                        log.info("code checks: all passed against the register")
+        if verdict is None:
+                verdict = review(state["request"], state["retrieved"], state["findings"])
+        if run_world:
+                run_world.record_verdict(verdict.verdict, [issue.model_dump() for issue in verdict.issues])
         return {"verdict": verdict}
 
 
@@ -105,16 +129,25 @@ graph = builder.compile()
 
 
 def run_investigation(request: str) -> dict:
-        """Run the full investigate -> critique -> retry loop and return the final state."""
-        log.info("REQUEST: %s", request)
-        return graph.invoke({
-                "request": request,
-                "findings": "",
-                "retrieved": [],
-                "verdict": None,
-                "attempt": 0,
-                "status": "",
-        })
+        """Run the full investigate -> critique -> retry loop and return the final state.
+
+        Everything the run sees and decides is recorded in a World Model register,
+        saved to .world/<run_id>.json; its path is returned as final["world_file"].
+        """
+        run_id = f"run-{datetime.now():%Y%m%d-%H%M%S}"
+        log.info("REQUEST (%s): %s", run_id, request)
+        run_world = careops_world.RunWorld(run_id, request)
+        with careops_world.activate(run_world):
+                final = graph.invoke({
+                        "request": request,
+                        "findings": "",
+                        "retrieved": [],
+                        "verdict": None,
+                        "attempt": 0,
+                        "status": "",
+                })
+        run_world.finish(final["status"], final["attempt"])
+        return {**final, "world_file": str(run_world.file)}
 
 
 if __name__ == "__main__":
@@ -132,3 +165,4 @@ if __name__ == "__main__":
 
         print("\nFINAL FINDINGS:\n" + final["findings"])
         print(f"\nFull log: {log_file}")
+        print(f"World Model register: {final['world_file']}")

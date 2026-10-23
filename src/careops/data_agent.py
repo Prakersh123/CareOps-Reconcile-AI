@@ -9,6 +9,7 @@ from langchain.agents import create_agent
 from langchain.messages import HumanMessage, ToolMessage
 from langchain.tools import tool
 
+from careops import careops_world
 from careops.llm import default_model
 from careops.logging_setup import short
 from careops.zetaris_client import ZetarisClient, ZetarisError
@@ -52,6 +53,8 @@ Rules:
 - Use IS NULL / IS NOT NULL for missing values, never = NULL.
 - Read-only: only a single SELECT statement. No INSERT, UPDATE, DELETE or DDL.
 - Always add LIMIT 200 unless the question needs fewer rows.
+- Always include order_id and invoice_id in the SELECT list, even when filtering on them;
+  they identify each record. (Aggregate queries such as COUNT are the only exception.)
 - If the question needs a column that does not exist (e.g. amount), say so instead of guessing.
 """
 
@@ -87,6 +90,9 @@ def queryExecutor(query: str) -> str:
                 return f"ERROR: {exc}"
         log.info("  -> %d rows (total %d%s) in %.1fs", len(result.rows), result.total_count,
                  ", TRUNCATED" if result.truncated else "", time.monotonic() - started)
+        run_world = careops_world.current()
+        if run_world:
+                run_world.record_query(result.sql, result.rows, result.total_count, result.truncated)
         return json.dumps({
                 "sql": result.sql,
                 "row_count": len(result.rows),

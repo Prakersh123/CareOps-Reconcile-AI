@@ -9,3 +9,6 @@ __pycache__/
 
 # run artefacts
 logs/
+
+# World Model registers, one per investigation run
+.world/
