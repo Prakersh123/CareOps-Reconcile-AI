@@ -5,8 +5,8 @@ import json
 
 import pytest
 
-from careops.careops_world import RunWorld
-from careops.critic_checks import check_findings
+from app.engines.careops_world import RunWorld
+from app.agents.critic_checks import check_findings
 
 ALL_ROWS = [
         {"order_id": "L101", "patient_id": "P101", "test_code": "CBC", "order_date": "2026-10-20", "lab_status": "COMPLETED",

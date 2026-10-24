@@ -4,8 +4,8 @@ import json
 
 from langchain.messages import AIMessage, HumanMessage
 
-from careops import orchestrator
-from careops.llm import describe_completion
+from app import orchestrator
+from app.adapters.llm import describe_completion
 
 FINDINGS = json.dumps({"findings": [{"order_id": "L102", "finding_type": "MISSING_INVOICE_CANDIDATE"}]})
 
@@ -67,14 +67,14 @@ def test_only_one_reminder_then_code_checks_take_over(monkeypatch):
 
 
 def retry_state():
-        from careops.critic_agent import CriticIssue, CriticVerdict
+        from app.agents.critic_agent import CriticIssue, CriticVerdict
         verdict = CriticVerdict(verdict="RETRY", issues=[
                 CriticIssue(order_id="L102", check="code:confidence", problem="confidence must be medium or low")])
         return {**state(), "findings": FINDINGS, "verdict": verdict, "attempt": 1}
 
 
 def test_retry_gives_the_investigator_the_data_already_retrieved(monkeypatch, tmp_path):
-        from careops import careops_world
+        from app.engines import careops_world
         run_world = careops_world.RunWorld("run-test", "Investigate", directory=tmp_path)
         run_world.record_query("SELECT order_id, invoice_id FROM t", [{"order_id": "L102", "invoice_id": None}], 1, False)
         fake = FakeInvestigator(ai(FINDINGS))

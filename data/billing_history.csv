@@ -1,0 +1,3 @@
+event_id,order_id,invoice_id,event_type,event_date,notes
+E101,L103,I102,INVOICE_CANCELLED,2026-10-21,Cancelled as duplicate
+E102,L103,I104,REPLACEMENT_INVOICE_CREATED,2026-10-21,Replacement for I102

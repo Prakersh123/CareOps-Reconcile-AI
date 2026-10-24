@@ -1,7 +1,7 @@
 import httpx
 import pytest
 
-from careops.zetaris_client import ZetarisClient, ZetarisError
+from app.adapters.zetaris_client import ZetarisClient, ZetarisError
 
 USL_TABLE = "lightning.metastore.careops.CAREOPS_RECONCILIATION.CAREOPS_RECONCILIATION"
 
@@ -88,9 +88,61 @@ def test_unknown_table_raises_clean_error(live_client):
         live_client.select("SELECT * FROM NO_SUCH_DB.no_such_table")
 
 
-def test_bad_password_is_clean_error():
-    client = ZetarisClient.from_env()
-    client._password = "wrong-password"
-    with pytest.raises(ZetarisError, match="login failed") as exc:
-        client.select("SELECT 1")
-    assert "wrong-password" not in str(exc.value)
+def test_refused_sign_in_is_a_clean_error_and_never_retried():
+    # A fake Zetaris, never the real one: real failed sign-ins count towards Zetaris' account lock.
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.path)
+        return httpx.Response(404, json={"msg": "Not Allowed"})
+
+    client = ZetarisClient("http://zetaris.test", "admin@example.com", "wrong-password",
+                           transport=httpx.MockTransport(handler))
+    for _ in range(3):
+        with pytest.raises(ZetarisError, match="login failed") as exc:
+            client.select("SELECT 1")
+        assert "wrong-password" not in str(exc.value) and "Not retried" in str(exc.value)
+    assert calls == ["/api/auth/login"]  # one sign-in attempt, however many queries follow
+
+
+# --- API key mode (the setup guide's REST route), against a fake Zetaris -------------
+
+def api_key_client(handler):
+        return ZetarisClient("http://zetaris.test/api/v1.0", api_key="secret-key", org_id="1",
+                             transport=httpx.MockTransport(handler))
+
+
+def test_api_key_mode_sends_bearer_key_and_org_to_the_select_only_endpoint():
+        seen = {}
+
+        def handler(request):
+                seen.update(path=request.url.path, auth=request.headers["Authorization"], org=request.headers["X-Org-ID"])
+                return httpx.Response(200, json={"records": [{"one": "1"}], "totalCount": 1})
+
+        result = api_key_client(handler).select("SELECT 1 AS one")
+        assert result.rows == [{"one": "1"}]
+        assert seen == {"path": "/api/v1.0/query/sql/start", "auth": "Bearer secret-key", "org": "1"}
+
+
+def test_api_key_mode_metadata_uses_the_guide_run_endpoint():
+        def handler(request):
+                assert request.url.path == "/api/v1.0/sql-editor/sqls/run"
+                return httpx.Response(200, json={"headers": ["col_name"], "data": [["order_id"]]})
+
+        assert api_key_client(handler).metadata("DESCRIBE t") == [{"col_name": "order_id"}]
+
+
+@pytest.mark.parametrize("status, body", [(401, {"msg": "Unauthorized"}), (400, {"msg": "Not Allowed"})])
+def test_rejected_api_key_is_a_clear_error_without_the_key(status, body):
+        client = api_key_client(lambda request: httpx.Response(status, json=body))
+        with pytest.raises(ZetarisError, match="rejected the API key") as exc:
+                client.select("SELECT 1")
+        assert "secret-key" not in str(exc.value) and "secret-key" not in repr(client)
+
+
+def test_from_env_prefers_the_api_key(monkeypatch):
+        monkeypatch.setenv("ZETARIS_API_KEY", "k")
+        monkeypatch.setenv("ZETARIS_REST_URL", "http://zetaris.test/api/v1.0")
+        monkeypatch.delenv("ZETARIS_ORG_ID", raising=False)
+        client = ZetarisClient.from_env()
+        assert client.mode == "api-key" and client.base_url == "http://zetaris.test/api/v1.0" and client._org_id == "1"

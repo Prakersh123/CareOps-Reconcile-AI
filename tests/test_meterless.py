@@ -6,8 +6,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from careops import meterless
-from careops.meterless import MeterlessError, normalize_base_url, parse_connect_link
+from app.adapters import meterless
+from app.adapters.meterless import MeterlessError, normalize_base_url, parse_connect_link
 
 GOOD_TOKEN = "test-token-123"
 

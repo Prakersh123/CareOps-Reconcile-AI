@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from careops.world_model import (
+from app.engines.world_model import (
         WorldModel, WorldModelError, canonical_json, decide, entity_id_from_name, name_similarity, normalize_name,
 )
 

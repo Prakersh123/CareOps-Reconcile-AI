@@ -1,0 +1,7 @@
+{
+  "run_id": "example-3",
+  "input": {
+    "query": "Which completed lab orders have no invoice at all?"
+  },
+  "options": {"sample_mode": false}
+}

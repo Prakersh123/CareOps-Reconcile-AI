@@ -12,3 +12,9 @@ logs/
 
 # World Model registers, one per investigation run
 .world/
+
+# local Claude Code settings
+.claude/
+
+# per-run reports (curated examples live in output_examples/)
+reports/

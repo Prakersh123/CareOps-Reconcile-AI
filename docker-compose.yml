@@ -1,0 +1,23 @@
+# docker compose up --build    -> API + web UI on http://localhost:${HOST_PORT:-8000}
+#
+# Zetaris and Meterless Nightshift run on the host, outside this container, so they are
+# reached through host.docker.internal (mapped to the host on Linux by extra_hosts).
+services:
+  careops:
+    build: .
+    image: careops-reconcile
+    env_file: .env
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8000"
+      ZETARIS_BASE_URL: ${ZETARIS_BASE_URL_DOCKER:-http://host.docker.internal:3000}
+      ZETARIS_REST_URL: ${ZETARIS_REST_URL_DOCKER:-http://host.docker.internal:8888/api/v1.0}
+      METERLESS_BASE_URL: ${METERLESS_BASE_URL_DOCKER:-http://host.docker.internal:8088/v1}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${HOST_PORT:-8000}:8000"
+    volumes:
+      - ./logs:/app/logs
+      - ./reports:/app/reports
+      - ./.world:/app/.world

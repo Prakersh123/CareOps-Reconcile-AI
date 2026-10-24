@@ -1,0 +1,7 @@
+{
+  "run_id": "example-2",
+  "input": {
+    "query": "Check order L103: are its invoices duplicate billing or a valid replacement?"
+  },
+  "options": {"sample_mode": false}
+}

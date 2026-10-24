@@ -1,0 +1,11 @@
+{
+  "description": "Synthetic rows of the Zetaris USL table careops.CAREOPS_RECONCILIATION (lab_orders LEFT JOIN billing_records LEFT JOIN billing_history), exactly as Zetaris returns them. Used by SAMPLE_MODE so the pipeline can run without Zetaris. No real patient data.",
+  "source": "lightning.metastore.careops.CAREOPS_RECONCILIATION.CAREOPS_RECONCILIATION",
+  "rows": [
+    {"order_id": "L101", "patient_id": "P101", "test_code": "CBC", "order_date": "2026-10-20", "lab_status": "COMPLETED", "invoice_id": "I101", "invoice_status": "ISSUED", "payment_status": "PAID", "event_type": null, "event_date": null, "notes": null},
+    {"order_id": "L102", "patient_id": "P102", "test_code": "LFT", "order_date": "2026-10-20", "lab_status": "COMPLETED", "invoice_id": null, "invoice_status": null, "payment_status": null, "event_type": null, "event_date": null, "notes": null},
+    {"order_id": "L103", "patient_id": "P103", "test_code": "CBC", "order_date": "2026-10-21", "lab_status": "COMPLETED", "invoice_id": "I102", "invoice_status": "CANCELLED", "payment_status": "UNPAID", "event_type": "INVOICE_CANCELLED", "event_date": "2026-10-21", "notes": "Cancelled as duplicate"},
+    {"order_id": "L103", "patient_id": "P103", "test_code": "CBC", "order_date": "2026-10-21", "lab_status": "COMPLETED", "invoice_id": "I104", "invoice_status": "ISSUED", "payment_status": "UNPAID", "event_type": "REPLACEMENT_INVOICE_CREATED", "event_date": "2026-10-21", "notes": "Replacement for I102"},
+    {"order_id": "L104", "patient_id": "P104", "test_code": "KFT", "order_date": "2026-10-21", "lab_status": "COMPLETED", "invoice_id": "I103", "invoice_status": "ISSUED", "payment_status": "PAID", "event_type": null, "event_date": null, "notes": null}
+  ]
+}

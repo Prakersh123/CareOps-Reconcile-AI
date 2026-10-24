@@ -1,0 +1,7 @@
+{
+  "run_id": "example-1",
+  "input": {
+    "query": "Investigate completed lab orders with missing invoices or unpaid replacement invoices. Check the available billing history, explain the evidence, and identify which cases require human review."
+  },
+  "options": {"sample_mode": false}
+}

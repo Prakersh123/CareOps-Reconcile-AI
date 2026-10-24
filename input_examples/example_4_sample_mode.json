@@ -1,0 +1,7 @@
+{
+  "run_id": "example-4-sample",
+  "input": {
+    "query": "Investigate completed lab orders with missing invoices or unpaid replacement invoices."
+  },
+  "options": {"sample_mode": true}
+}
