@@ -10,7 +10,7 @@ from langchain.messages import HumanMessage, ToolMessage
 from langchain.tools import tool
 
 from careops import careops_world
-from careops.llm import default_model
+from careops.llm import default_model, describe_completion
 from careops.logging_setup import short
 from careops.zetaris_client import ZetarisClient, ZetarisError
 
@@ -134,7 +134,8 @@ def call_agent(query:str)->str:
                 log.warning("all %d queries failed; returning last error", failed)
                 return tool_outputs[-1]  # every attempt failed: pass the last error on
         # No query was run (e.g. the question needs a column that does not exist).
-        log.warning("no query run: %s", short(result["messages"][-1].content))
+        log.warning("no query run (%s): %s", describe_completion(result["messages"][-1]),
+                    short(result["messages"][-1].content))
         return "NO QUERY RUN: " + result["messages"][-1].content
 
 

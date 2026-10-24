@@ -176,3 +176,10 @@ def test_reconciled_needs_a_paid_invoice(world):
 def test_human_review_required_except_reconciled(world):
         assert checks(run(world, with_changes(L103, requires_human_review=False))) == {"code:human_review"}
         assert run(world, L101) == []  # RECONCILED may skip human review
+
+
+@pytest.mark.parametrize("bad", [None, "", 104])
+def test_null_or_non_string_invoice_id_gets_a_clear_fix(world, bad):
+        issues = run(world, with_changes(L102, invoice_ids=[bad]))
+        assert checks(issues) == {"code:invoice_ids_format"}
+        assert '"invoice_ids": []' in issues[0]["problem"]

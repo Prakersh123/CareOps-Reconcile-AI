@@ -46,6 +46,49 @@ def invoice_entity_id(invoice_id: str) -> str:
         return external_id("invoice", "zetaris", invoice_id)
 
 
+class ZetarisData:
+        """What Zetaris returned in this run, read from the register's event log.
+
+        Only writes with source kind "zetaris" count; values agents wrote (facts) are excluded.
+        Columns that no query selected are absent, not None.
+        """
+
+        def __init__(self, world: WorldModel):
+                self.attrs: dict[str, dict] = {}                # entity id -> attrs from Zetaris writes only
+                self.bills: set[tuple[str, str]] = set()        # (invoice id, order id)
+                self.replaces: set[tuple[str, str]] = set()     # (new invoice id, old invoice id), derived
+                for event in world.events():
+                        payload = event["payload"]
+                        if event["kind"] == "upsertEntity" and payload["source"]["kind"] == "zetaris":
+                                self.attrs.setdefault(payload["id"], {}).update(payload["attrs"])
+                        elif event["kind"] == "relate" and payload["type"] == "bills":
+                                self.bills.add((payload["from"], payload["to"]))
+                        elif event["kind"] == "relate" and payload["type"] == "replaces":
+                                self.replaces.add((payload["from"], payload["to"]))
+
+        def invoices_of(self, order: str) -> list[str]:
+                return sorted(invoice for invoice, billed in self.bills if billed == order)
+
+        def summary(self) -> dict:
+                """Deduplicated per-order view of everything retrieved: the context handed to a retrying investigator."""
+                short = lambda entity_id: entity_id.rsplit(":", 1)[-1]
+                orders = {
+                        short(eid): {"order": attrs,
+                                     "invoices": {short(i): self.attrs.get(i, {}) for i in self.invoices_of(eid)}}
+                        for eid, attrs in sorted(self.attrs.items()) if eid.startswith("order:")
+                }
+                summary: dict = {"orders": orders}
+                linked = {invoice for invoice, _ in self.bills}
+                unlinked = {short(eid): attrs for eid, attrs in sorted(self.attrs.items())
+                            if eid.startswith("invoice:") and eid not in linked}
+                if unlinked:
+                        summary["invoices_without_order"] = unlinked
+                if self.replaces:
+                        summary["replacement_links_derived_from_notes"] = sorted(
+                                f"{short(new)} replaces {short(old)}" for new, old in self.replaces)
+                return summary
+
+
 def current() -> RunWorld | None:
         """The register of the run in progress, or None outside a run."""
         return _current.get()
@@ -131,6 +174,11 @@ class RunWorld:
                         self.world.relate(from_=invoice_entity_id(invoice_id), type="replaces",
                                           to=invoice_entity_id(match.group(1)),
                                           source=self._source("data_agent", kind="derived"))
+
+        def retrieved_context(self) -> str | None:
+                """Everything Zetaris returned so far in this run, as compact JSON; None if nothing yet."""
+                summary = ZetarisData(self.world).summary()
+                return json.dumps(summary, indent=1) if summary["orders"] or len(summary) > 1 else None
 
         # ---------------------------------------------------- agent outputs
 

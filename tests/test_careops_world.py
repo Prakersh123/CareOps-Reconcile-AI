@@ -137,3 +137,39 @@ def test_current_is_set_only_inside_activate(run_world):
         with careops_world.activate(run_world):
                 assert careops_world.current() is run_world
         assert careops_world.current() is None
+
+
+# ------------------------------------------------- retry context (summary)
+
+def test_summary_groups_retrieved_data_by_order(run_world):
+        run_world.record_query("SELECT * FROM t", ALL_ROWS, 5, False)
+        summary = careops_world.ZetarisData(run_world.world).summary()
+        assert sorted(summary["orders"]) == ["L101", "L102", "L103", "L104"]
+        assert sorted(summary["orders"]["L103"]["invoices"]) == ["I102", "I104"]
+        assert summary["orders"]["L103"]["invoices"]["I104"]["notes"] == "Replacement for I102"
+        assert summary["orders"]["L102"]["invoices"] == {}
+        assert summary["orders"]["L102"]["order"]["invoice_id"] is None
+        assert summary["replacement_links_derived_from_notes"] == ["I104 replaces I102"]
+
+
+def test_summary_leaves_out_agent_written_values(run_world):
+        run_world.record_query("SELECT * FROM t", ALL_ROWS, 5, False)
+        run_world.record_findings(json.dumps({"findings": [{"order_id": "L102", "finding_type": "MISSING_INVOICE_CANDIDATE"}]}))
+        assert "finding" not in careops_world.ZetarisData(run_world.world).summary()["orders"]["L102"]["order"]
+
+
+def test_summary_only_has_columns_that_were_selected(run_world):
+        run_world.record_query("SELECT order_id, invoice_id FROM t", [{"order_id": "L102", "invoice_id": None}], 1, False)
+        assert careops_world.ZetarisData(run_world.world).summary()["orders"]["L102"]["order"] == {"order_id": "L102", "invoice_id": None}
+
+
+def test_invoice_without_selected_order_is_listed_separately(run_world):
+        run_world.record_query("SELECT invoice_id, payment_status FROM t", [{"invoice_id": "I104", "payment_status": "UNPAID"}], 1, False)
+        summary = careops_world.ZetarisData(run_world.world).summary()
+        assert summary["orders"] == {} and summary["invoices_without_order"]["I104"]["payment_status"] == "UNPAID"
+
+
+def test_retrieved_context_is_none_before_any_query(run_world):
+        assert run_world.retrieved_context() is None
+        run_world.record_query("SELECT * FROM t", ALL_ROWS, 5, False)
+        assert json.loads(run_world.retrieved_context())["orders"]["L101"]["invoices"]["I101"]["payment_status"] == "PAID"

@@ -76,10 +76,13 @@ Never copy it; every value in your output must come from retrieved data.
 }
 
 Evidence rules:
-- Every evidence value must be copied exactly from data returned by `ask_data_agent`.
+- Every evidence value must be copied exactly from retrieved data: rows returned by
+  `ask_data_agent`, or the "data already retrieved" block you are given on a retry.
 - Never invent invoice IDs, statuses, dates or notes.
 - Only cite fields that your data requests actually returned; your evidence is checked
   automatically against the retrieved rows.
+- invoice_ids lists only real invoice ids from the data. When an order has no invoice,
+  write "invoice_ids": [] (an empty list), never [null].
 - For a missing invoice, cite the order's own row with invoice_id null, e.g.
   {"invoice_id": null, "field": "invoice_id", "value": null}.
 - confidence is "high", "medium" or "low", based on how complete the evidence is.

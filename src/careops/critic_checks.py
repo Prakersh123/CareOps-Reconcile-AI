@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 
-from careops.careops_world import invoice_entity_id, order_entity_id
+from careops.careops_world import ZetarisData, invoice_entity_id, order_entity_id
 from careops.world_model import WorldModel
 
 FINDING_TYPES = {
@@ -25,26 +25,6 @@ REQUIRED_FIELDS = (
         "uncertainty", "recommended_action", "requires_human_review",
 )
 EMPTY_UNCERTAINTY = {"", "none", "n/a", "na", "null", "unknown"}
-
-
-class _Register:
-        """What Zetaris returned in this run, read from the register's event log."""
-
-        def __init__(self, world: WorldModel):
-                self.attrs: dict[str, dict] = {}       # entity id -> attrs from Zetaris writes only
-                self.bills: set[tuple[str, str]] = set()        # (invoice id, order id)
-                self.replaces: set[tuple[str, str]] = set()     # (new invoice id, old invoice id)
-                for event in world.events():
-                        payload = event["payload"]
-                        if event["kind"] == "upsertEntity" and payload["source"]["kind"] == "zetaris":
-                                self.attrs.setdefault(payload["id"], {}).update(payload["attrs"])
-                        elif event["kind"] == "relate" and payload["type"] == "bills":
-                                self.bills.add((payload["from"], payload["to"]))
-                        elif event["kind"] == "relate" and payload["type"] == "replaces":
-                                self.replaces.add((payload["from"], payload["to"]))
-
-        def invoices_of(self, order: str) -> list[str]:
-                return sorted(invoice for invoice, billed in self.bills if billed == order)
 
 
 def check_findings(findings_json: str, world: WorldModel) -> list[dict]:
@@ -63,7 +43,7 @@ def check_findings(findings_json: str, world: WorldModel) -> list[dict]:
                                     "Return ONLY the JSON object described in your instructions.")
                 return issues
 
-        register = _Register(world)
+        register = ZetarisData(world)
         for finding in findings:
                 if not isinstance(finding, dict):
                         add(None, "format", "Each entry in 'findings' must be a JSON object.")
@@ -72,7 +52,7 @@ def check_findings(findings_json: str, world: WorldModel) -> list[dict]:
         return issues
 
 
-def _check_finding(finding: dict, register: _Register, add) -> None:
+def _check_finding(finding: dict, register: ZetarisData, add) -> None:
         order_id = finding.get("order_id")
         order = order_entity_id(order_id) if order_id else None
 
@@ -99,7 +79,11 @@ def _check_finding(finding: dict, register: _Register, add) -> None:
                 _check_evidence_item(order_id, order, item, register, add)
         billed = register.invoices_of(order)
         for invoice_id in finding.get("invoice_ids") or []:
-                if invoice_entity_id(invoice_id) not in billed:
+                if not isinstance(invoice_id, str) or not invoice_id:
+                        add(order_id, "invoice_ids_format",
+                            f'invoice_ids contains {json.dumps(invoice_id)}. List only real invoice ids; '
+                            f'when an order has no invoice, use an empty list: "invoice_ids": [].')
+                elif invoice_entity_id(invoice_id) not in billed:
                         add(order_id, "invoice_belongs",
                             f"Invoice {invoice_id} is not an invoice of order {order_id} in the retrieved data.")
 
@@ -131,7 +115,7 @@ def _check_finding(finding: dict, register: _Register, add) -> None:
                 add(order_id, "human_review", "Every finding except RECONCILED must set requires_human_review to true.")
 
 
-def _check_evidence_item(order_id, order: str, item, register: _Register, add) -> None:
+def _check_evidence_item(order_id, order: str, item, register: ZetarisData, add) -> None:
         if not isinstance(item, dict) or "field" not in item or "value" not in item:
                 add(order_id, "evidence_format", f"Evidence item {item!r} must have invoice_id, field and value.")
                 return

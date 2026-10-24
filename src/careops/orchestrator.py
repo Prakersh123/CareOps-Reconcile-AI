@@ -12,12 +12,19 @@ from careops import careops_world
 from careops.critic_agent import CriticIssue, CriticVerdict, collect_retrieved_data, review
 from careops.critic_checks import check_findings
 from careops.investigator_agent import investigator_agent
+from careops.llm import describe_completion
 from careops.logging_setup import setup_logging
 
 log = logging.getLogger("careops.orchestrator")
 
 # 1 first investigation + 2 retries.
 MAX_ATTEMPTS = 3
+
+FINDINGS_REMINDER = (
+        "Your last reply contained no findings. Using only the data you already retrieved in this "
+        "conversation, return ONLY the findings JSON object now, in the exact format from your instructions. "
+        "Do not request more data."
+)
 
 
 class InvestigationState(TypedDict):
@@ -29,10 +36,17 @@ class InvestigationState(TypedDict):
         status: str                                  # VERIFIED or INCONCLUSIVE, set by finalize
 
 
-def _log_findings(findings: str) -> None:
+def _findings_list(findings: str) -> list | None:
         try:
                 parsed = json.loads(findings)["findings"]
         except (ValueError, KeyError, TypeError):
+                return None
+        return parsed if isinstance(parsed, list) else None
+
+
+def _log_findings(findings: str) -> None:
+        parsed = _findings_list(findings)
+        if parsed is None:
                 log.warning("findings are not valid JSON with a 'findings' list: %s", findings[:200])
                 return
         for f in parsed:
@@ -52,23 +66,46 @@ def investigate(state: InvestigationState) -> dict:
         else:
                 log.info("=== ATTEMPT %d/%d: investigator retries with %d critic issue(s)",
                          attempt, MAX_ATTEMPTS, len(state["verdict"].issues))
-                # Retry: original request + previous findings + the critic's issues.
+                # Retry: original request + the data already retrieved (from the World Model register)
+                # + previous findings + the critic's issues. With the data in hand the investigator can
+                # fix the issues without fetching everything again.
                 issues = "\n".join(
                         f"- [{issue.check}] {issue.order_id or 'all'}: {issue.problem}"
                         for issue in state["verdict"].issues
                 )
-                message = (
-                        state["request"]
-                        + "\n\nYour previous findings:\n" + state["findings"]
+                known = run_world.retrieved_context() if run_world else None
+                if known:
+                        log.info("retry includes the data already retrieved (%d chars from the register)", len(known))
+                message = state["request"]
+                if known:
+                        message += (
+                                "\n\nData already retrieved from Zetaris in earlier attempts (exact values; "
+                                "columns not listed were never retrieved):\n" + known
+                        )
+                message += (
+                        "\n\nYour previous findings:\n" + state["findings"]
                         + "\n\nThe critic rejected them for these reasons:\n" + issues
                         + "\n\nFix these issues and return the complete corrected findings. "
-                        + "Retrieve more data if needed."
+                )
+                message += (
+                        "Use the data above; call ask_data_agent only if a fix needs a column or record "
+                        "that is not listed there." if known else "Retrieve more data if needed."
                 )
         started = time.monotonic()
         result = investigator_agent.invoke({"messages": [HumanMessage(content=message)]})
+        log.info("investigator done in %.1fs: %d data request(s); %s", time.monotonic() - started,
+                 len(collect_retrieved_data(result["messages"])), describe_completion(result["messages"][-1]))
+        if _findings_list(result["messages"][-1].content) is None:
+                # Usually the reply ran out of tokens and came back empty. The investigator already has its
+                # data in this conversation, so ask once more for just the JSON instead of a full retry.
+                log.warning("no findings JSON in the reply; asking the investigator once more for the JSON only")
+                started = time.monotonic()
+                result = investigator_agent.invoke(
+                        {"messages": result["messages"] + [HumanMessage(content=FINDINGS_REMINDER)]})
+                log.info("reminder answered in %.1fs; %s", time.monotonic() - started,
+                         describe_completion(result["messages"][-1]))
         findings = result["messages"][-1].content
         retrieved = collect_retrieved_data(result["messages"])
-        log.info("investigator done in %.1fs: %d data request(s)", time.monotonic() - started, len(retrieved))
         _log_findings(findings)
         if run_world:
                 run_world.record_findings(findings)
