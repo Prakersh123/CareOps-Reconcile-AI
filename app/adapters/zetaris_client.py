@@ -5,7 +5,8 @@ Two ways to connect, chosen by from_env():
 - API key (the hackathon setup guide's route): ZETARIS_REST_URL (http://localhost:8888/api/v1.0),
   ZETARIS_API_KEY sent as a Bearer token, ZETARIS_ORG_ID (1 on a local install).
 - Sign-in: ZETARIS_BASE_URL (the web interface, http://localhost:3000) with ZETARIS_USERNAME and
-  ZETARIS_PASSWORD; the session token is renewed once if it expires.
+  ZETARIS_PASSWORD. The session token lasts 15 minutes, so it is renewed a minute before it expires
+  (and once more if Zetaris still says the session is no longer valid).
 
 Either way, agents get two methods:
 - select()   -> /query/sql/start, which Zetaris itself restricts to SELECT
@@ -17,8 +18,11 @@ data sources); no agent tool calls it. Credentials and tokens never appear in ex
 
 from __future__ import annotations
 
+import base64
+import json
 import os
 import re
+import time
 import uuid
 from dataclasses import dataclass, field
 
@@ -31,6 +35,11 @@ _SIGN_IN_PATHS = {"select": "/api/proxy/query/sql/start", "run": "/api/proxy/sql
 LOGIN_PATH = "/api/auth/login"
 
 _METADATA_KEYWORDS = ("SHOW", "DESCRIBE", "DESC")
+
+# An expired or invalid session token is answered with 400 and exactly one of these messages (not
+# 401); real query errors carry a longer message, e.g. "table is not found : ...".
+_SESSION_REJECTED = {"Bad Request", "Not Allowed"}
+_RENEW_BEFORE_SECONDS = 60
 
 
 class ZetarisError(Exception):
@@ -74,6 +83,7 @@ class ZetarisClient:
         self._org_id: str | None = org_id if api_key else None
         self._paths = _API_KEY_PATHS if api_key else _SIGN_IN_PATHS
         self._login_error: str | None = None  # set once a sign-in is refused; never retried
+        self._expires_at: float | None = None  # sign-in token expiry (epoch seconds), when known
         self._http = httpx.Client(base_url=self.base_url, timeout=timeout, transport=transport)  # transport: tests
 
     @property
@@ -116,9 +126,17 @@ class ZetarisClient:
             raise ZetarisError(self._login_error)
         body = resp.json()
         self._token, self._org_id = body["idToken"], str(body["orgId"])
+        self._expires_at = _token_expiry(self._token)
+
+    def _session_expired(self, resp: httpx.Response) -> bool:
+        if self._api_key:
+            return False
+        if resp.status_code == 401:
+            return True
+        return resp.status_code == 400 and _error_text(resp).strip() in _SESSION_REJECTED
 
     def _post(self, path: str, payload: dict) -> dict:
-        if self._token is None:
+        if self._token is None or (self._expires_at and time.time() > self._expires_at - _RENEW_BEFORE_SECONDS):
             self._login()
         for attempt in range(2):
             headers = {
@@ -132,8 +150,8 @@ class ZetarisClient:
                 raise ZetarisError("Zetaris query timed out") from None
             except httpx.HTTPError as exc:
                 raise ZetarisError(f"Zetaris request failed ({self.base_url}): {type(exc).__name__}") from None
-            if resp.status_code == 401 and attempt == 0 and not self._api_key:
-                self._login()  # session token expired; sign in again once
+            if attempt == 0 and self._session_expired(resp):
+                self._login()  # session token expired or no longer accepted; sign in again once
                 continue
             # A bad key comes back as 401/403, or as 400 "Not Allowed" on Zetaris 2.4.
             if self._api_key and (resp.status_code in (401, 403)
@@ -174,6 +192,16 @@ class ZetarisClient:
 
     def close(self) -> None:
         self._http.close()
+
+
+def _token_expiry(token: str) -> float | None:
+    """The exp claim of a JWT session token (read, not verified: it only decides when to renew)."""
+    try:
+        payload = token.split(".")[1]
+        claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+        return float(claims["exp"])
+    except (IndexError, KeyError, TypeError, ValueError):
+        return None
 
 
 def _error_text(resp: httpx.Response) -> str:

@@ -158,17 +158,39 @@ textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .pipeline-head { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; }
 .request { font-size: 0.95rem; margin-top: 0.15rem; }
 .pipeline-status { display: flex; flex-direction: column; align-items: flex-end; gap: 0.25rem; flex: none; }
-.stages { list-style: none; margin: 0.9rem 0 0; padding: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem; }
-.stage { display: flex; gap: 0.5rem; align-items: center; padding: 0.5rem; border-radius: 8px; background: var(--surface-2); font-size: 0.85rem; }
-.stage > span:last-child { display: flex; flex-direction: column; }
-.stage-dot {
-  flex: none; display: grid; place-items: center; width: 1.6rem; height: 1.6rem; border-radius: 50%;
-  border: 2px solid var(--border); font-size: 0.75rem; font-weight: 700; color: var(--muted);
+
+/* ---------------------------------------------- agent flow (live run) */
+.flow { margin-top: 0.9rem; }
+.flow-svg { display: block; width: 100%; height: auto; max-height: 300px; }
+.flow-node rect { fill: var(--surface-2); stroke: var(--border); stroke-width: 1.5; transition: fill 0.3s, stroke 0.3s; }
+.flow-node.visited rect { stroke: var(--muted); }
+.flow-title { font-size: 15px; font-weight: 700; fill: var(--text); }
+.flow-sub { font-size: 11.5px; fill: var(--muted); }
+.flow-node.active rect { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 3; animation: glow 1.1s ease-in-out infinite; }
+.flow-node.active.tone-reject rect { fill: var(--risk-soft); stroke: var(--risk); }
+.flow-node.active.tone-ok rect { fill: var(--ok-soft); stroke: var(--ok); }
+.flow-edge { fill: none; stroke: var(--border); stroke-width: 2; }
+.flow-edge.active { stroke-width: 3.5; stroke-dasharray: 9 7; animation: flow-dash 0.6s linear infinite; }
+.flow-edge.active.tone-normal { stroke: var(--accent); }
+.flow-edge.active.tone-ok { stroke: var(--ok); }
+.flow-edge.active.tone-reject { stroke: var(--risk); }
+.flow-head.idle { fill: var(--border); }
+.flow-head.tone-normal { fill: var(--accent); }
+.flow-head.tone-ok { fill: var(--ok); }
+.flow-head.tone-reject { fill: var(--risk); }
+.flow-caption { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; margin-top: 0.5rem; min-height: 2.6rem; }
+.flow-text { margin: 0; padding: 0.55rem 0.8rem; border-radius: 8px; background: var(--surface-2); font-size: 0.95rem; flex: 1; animation: caption-in 0.35s ease-out; }
+.flow-text.tone-reject { background: var(--risk-soft); color: var(--risk); font-weight: 600; }
+.flow-text.tone-ok { background: var(--ok-soft); color: var(--ok); font-weight: 600; }
+.flow-controls { display: flex; align-items: center; gap: 0.5rem; flex: none; }
+.flow-controls select { font: inherit; padding: 0.35rem 0.5rem; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+.flow-live { display: inline-block; width: 0.55rem; height: 0.55rem; margin-right: 0.5rem; border-radius: 50%; background: currentColor; vertical-align: middle; animation: pulse 1.2s infinite; }
+@keyframes glow { 50% { stroke-opacity: 0.45; } }
+@keyframes flow-dash { to { stroke-dashoffset: -16; } }
+@keyframes caption-in { from { opacity: 0; transform: translateY(4px); } }
+@media (prefers-reduced-motion: reduce) {
+  .flow-node.active rect, .flow-edge.active, .flow-text, .flow-live { animation: none; }
 }
-.stage.complete .stage-dot { background: var(--accent); border-color: var(--accent); color: #fff; }
-.stage.current { background: var(--accent-soft); }
-.stage.current .stage-dot { border-color: var(--accent); color: var(--accent); animation: pulse 1.2s infinite; }
-@media (max-width: 700px) { .stages { grid-template-columns: 1fr 1fr; } }
 
 /* -------------------------------------------------------------- tabs */
 .tabs { display: flex; gap: 0.25rem; border-bottom: 1px solid var(--border); overflow-x: auto; }

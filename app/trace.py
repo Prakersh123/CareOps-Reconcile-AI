@@ -4,11 +4,16 @@ Each progress event becomes a record saying which agent did what, for whom, with
 model, on which attempt, and how it went. This is what a reviewer reads to verify the
 agents' work: handoffs, Zetaris queries, World Model (Meterless engine) activity, critique,
 retries and the model behind every LLM call.
+
+The raw progress events are kept too (logs/events-<run_id>.jsonl), so the web UI can show
+the timeline and replay the agent flow of any finished run. Runs traced before that file
+existed get their events rebuilt from the trace (load_events).
 """
 
 from __future__ import annotations
 
 import json
+import re
 import threading
 from contextlib import contextmanager
 from pathlib import Path
@@ -88,16 +93,106 @@ def trace_path(run_id: str) -> Path:
         return logs_dir() / f"trace-{run_id}.jsonl"
 
 
+def events_path(run_id: str) -> Path:
+        return logs_dir() / f"events-{run_id}.jsonl"
+
+
 @contextmanager
 def tracing(run_id: str) -> Iterator[Path]:
-        """Write every progress event of this run to logs/trace-<run_id>.jsonl while the block runs."""
+        """Write every progress event of this run to the trace (and raw, to the events file) while the block runs."""
         logs_dir().mkdir(parents=True, exist_ok=True)
         path = trace_path(run_id)
         lock = threading.Lock()
-        with path.open("a", encoding="utf-8") as out:
+        with path.open("a", encoding="utf-8") as out, events_path(run_id).open("a", encoding="utf-8") as raw:
                 def write(event: dict) -> None:
                         with lock:
                                 out.write(json.dumps(to_record(event, run_id), ensure_ascii=False, default=str) + "\n")
                                 out.flush()
+                                raw.write(json.dumps(event, ensure_ascii=False, default=str) + "\n")
+                                raw.flush()
                 with progress.run_scope(run_id), progress.listen(write):
                         yield path
+
+
+def _read_jsonl(path: Path) -> list[dict]:
+        out = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+                try:
+                        out.append(json.loads(line))
+                except ValueError:
+                        continue  # a line cut short by a crash
+        return out
+
+
+def load_events(run_id: str) -> list[dict]:
+        """The progress events of a finished run: the raw events file, else rebuilt from the trace."""
+        if events_path(run_id).exists():
+                return _read_jsonl(events_path(run_id))
+        if trace_path(run_id).exists():
+                return [e for e in (from_record(r) for r in _read_jsonl(trace_path(run_id))) if e]
+        return []
+
+
+_ISSUE = re.compile(r"\[([^\]]+)\] ([^:]+): (.*?)(?=; \[|$)")
+
+
+def _parse_issues(text: str) -> list[dict]:
+        return [{"check": c, "order_id": None if o == "None" else o, "problem": p}
+                for c, o, p in _ISSUE.findall(text or "")]
+
+
+def _number(pattern: str, text: str, cast=int):
+        match = re.search(pattern, text or "")
+        return cast(match.group(1)) if match else None
+
+
+def from_record(record: dict) -> dict | None:
+        """Best-effort inverse of to_record, for runs that have a trace but no events file.
+
+        Summaries in the trace are shortened, so long SQL or issue lists may come back cut off.
+        """
+        agent, action = record.get("agent_name"), record.get("action")
+        inp, out = record.get("input_summary") or "", record.get("output_summary") or ""
+        attempt = (record.get("retry_count") or 0) + 1
+        event = {"at": record.get("timestamp")}
+        if action == "start_run":
+                event.update(kind="run_started", request=inp)
+        elif agent == "Orchestrator" and action in ("delegate_task", "request_refinement"):
+                fix = inp.split("; fix: ", 1)
+                event.update(kind="attempt_started", attempt=_number(r"attempt (\d+)", inp) or attempt,
+                             max_attempts=_number(r"attempt \d+/(\d+)", inp),
+                             retry_issues=_parse_issues(fix[1]) if len(fix) > 1 else [])
+        elif agent == "Investigator" and action == "delegate_task":
+                event.update(kind="data_request", request=inp)
+        elif action == "query_zetaris" and record.get("status") == "error":
+                event.update(kind="query_failed", sql=inp, error=out)
+        elif action == "query_zetaris":
+                event.update(kind="query", sql=inp, rows=_number(r"(\d+) row", out), total=_number(r"of (\d+)", out),
+                             seconds=_number(r"in ([\d.]+)s", out, float), truncated="(truncated)" in out)
+        elif agent == "World Model (Meterless engine)":
+                event.update(kind="world_model", action=action, input=inp, output=out)
+        elif action == "model_call":
+                event.update(kind="llm_call", agent=agent, model=record.get("model"), completion=out)
+        elif action == "produce_findings":
+                findings = None if record.get("status") == "error" else [
+                        {"order_id": o, "finding_type": t, "confidence": c}
+                        for o, t, c in re.findall(r"([^,:\s]+): (\S+) \(([^)]*)\)", out)]
+                event.update(kind="investigator_done", attempt=attempt, findings=findings,
+                             data_requests=_number(r"(\d+) data request", inp))
+        elif action == "recover":
+                event.update(kind="reminder", attempt=attempt)
+        elif action == "verify_evidence":
+                passed = record.get("status") == "success"
+                event.update(kind="code_checks", attempt=attempt, passed=passed, issues=[] if passed else _parse_issues(out))
+        elif action == "review":
+                event.update(kind="critic_started", attempt=attempt)
+        elif action == "verdict":
+                verdict, _, issues = out.partition(": ")
+                event.update(kind="verdict", attempt=attempt, verdict=verdict,
+                             decided_by="code" if agent == "Critic (code checks)" else "llm", issues=_parse_issues(issues))
+        elif action == "finish_run":
+                event.update(kind="run_finished", status=out.split(" after ")[0],
+                             attempts=_number(r"after (\d+) attempt", out))
+        else:
+                return None
+        return event

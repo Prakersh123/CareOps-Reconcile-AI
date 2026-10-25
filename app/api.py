@@ -28,6 +28,7 @@ from app import data_check, service
 from app.paths import PROJECT_ROOT, home, world_file
 from app.logging_setup import setup_logging
 from app.report import list_reports, load_report
+from app.trace import load_events
 from app.engines.world_model import WorldModel
 
 log = logging.getLogger("careops.api")
@@ -213,8 +214,10 @@ def run_status(run_id: str, since: int = 0) -> dict:
         report = load_report(run_id)
         if not report:
                 raise HTTPException(404, "Unknown run")
+        events = load_events(run_id)  # saved with the run, so its timeline and agent flow can be replayed
         return {"run_id": run_id, "request": report["request"], "state": "finished", "started_at": report["generated_at"],
-                "sample_mode": report.get("sample_mode", False), "events": [], "next": since, "report": report, "error": None}
+                "sample_mode": report.get("sample_mode", False), "events": events[since:], "next": len(events),
+                "report": report, "error": None}
 
 
 @app.get("/api/runs/{run_id}/register")

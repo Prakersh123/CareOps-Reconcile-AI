@@ -127,6 +127,7 @@ Every log line, trace record and report says when a run was in sample mode.
 
 - **stdout** and `logs/careops-<time>.log`: readable lines tagged `run_id=...`
 - **`logs/trace-<run_id>.jsonl`**: one JSON object per step, with `timestamp, run_id, agent_name, action, input_summary, output_summary, target_agent, model, retry_count, status`. It shows every handoff, Zetaris query, World Model action, critic decision, retry and model call. **Every model call records the model that answered** (e.g. `nvidia/nemotron-3.5-lightning-30b-a3b`)
+- `logs/events-<run_id>.jsonl`: the raw progress events, so the web UI can show the timeline and replay the live agent-flow animation of any past run (runs from before this file existed are rebuilt from their trace)
 - `.world/<run_id>.json`: the run's World Model register (event log + audit)
 - `reports/<run_id>.json`: the final report
 

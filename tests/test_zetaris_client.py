@@ -1,3 +1,7 @@
+import base64
+import json
+import time
+
 import httpx
 import pytest
 
@@ -104,6 +108,55 @@ def test_refused_sign_in_is_a_clean_error_and_never_retried():
         assert "wrong-password" not in str(exc.value) and "Not retried" in str(exc.value)
     assert calls == ["/api/auth/login"]  # one sign-in attempt, however many queries follow
 
+
+
+def fake_jwt(expires_in: float) -> str:
+    payload = base64.urlsafe_b64encode(json.dumps({"exp": time.time() + expires_in}).encode()).decode().rstrip("=")
+    return f"eyJhbGciOiJub25lIn0.{payload}.sig"
+
+
+def session_client(answers):
+    """A fake Zetaris: each sign-in issues a fresh token; queries are answered by answers(token, logins)."""
+    calls = {"logins": 0, "queries": 0}
+
+    def handler(request):
+        if request.url.path == "/api/auth/login":
+            calls["logins"] += 1
+            return httpx.Response(200, json={"idToken": calls["token"](calls["logins"]), "orgId": 1})
+        calls["queries"] += 1
+        return answers(request.headers["Authorization"], calls["logins"])
+
+    client = ZetarisClient("http://zetaris.test", "admin@example.com", "pw", transport=httpx.MockTransport(handler))
+    calls["token"] = lambda n: fake_jwt(900)
+    return client, calls
+
+
+@pytest.mark.parametrize("msg", ["Bad Request", "Not Allowed"])
+def test_session_rejected_with_400_signs_in_again_once(msg):
+    # Zetaris answers an expired session token with 400 and a bare message, not 401.
+    def answers(auth, logins):
+        if logins == 1:
+            return httpx.Response(400, json={"msg": msg})
+        return httpx.Response(200, json={"records": [{"n": "5"}], "totalCount": 1})
+
+    client, calls = session_client(answers)
+    assert client.select("SELECT 1").rows == [{"n": "5"}]
+    assert calls["logins"] == 2 and calls["queries"] == 2
+
+
+def test_token_is_renewed_before_it_expires():
+    client, calls = session_client(lambda auth, logins: httpx.Response(200, json={"records": [], "totalCount": 0}))
+    calls["token"] = lambda n: fake_jwt(30 if n == 1 else 900)  # first token is about to expire
+    client.select("SELECT 1")
+    client.select("SELECT 1")
+    assert calls["logins"] == 2 and calls["queries"] == 2  # renewed before the second query, no failed call
+
+
+def test_a_real_query_error_does_not_trigger_a_new_sign_in():
+    client, calls = session_client(lambda auth, logins: httpx.Response(400, json={"msg": "table is not found : x"}))
+    with pytest.raises(ZetarisError, match="table is not found"):
+        client.select("SELECT * FROM x")
+    assert calls["logins"] == 1 and calls["queries"] == 1
 
 # --- API key mode (the setup guide's REST route), against a fake Zetaris -------------
 

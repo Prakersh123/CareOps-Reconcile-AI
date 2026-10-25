@@ -10,7 +10,7 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from app import api, data_check, report, service
+from app import api, data_check, report, service, trace
 
 REAL_DATA_CHECK = data_check.check  # before the autouse fixture replaces it
 from app.engines.careops_world import RunWorld
@@ -148,6 +148,38 @@ def test_sample_run_writes_a_trace_with_agents_handoffs_and_engine(careops_home)
                                    "target_agent", "model", "retry_count", "status"}
 
 
+
+def test_raw_events_are_kept_and_old_traces_rebuild_them(careops_home):
+        service.run_once("Check order L103", run_id="demo-events", sample_mode=True)
+        events = trace.load_events("demo-events")
+        kinds = [e["kind"] for e in events]
+        assert kinds[0] == "run_started" and kinds[-1] == "run_finished" and "code_checks" in kinds
+        # A run traced before events files existed: the same story comes back from the trace alone.
+        (careops_home / "logs" / "events-demo-events.jsonl").unlink()
+        rebuilt = trace.load_events("demo-events")
+        assert [e["kind"] for e in rebuilt] == kinds
+        query = next(e for e in rebuilt if e["kind"] == "query")
+        original = next(e for e in events if e["kind"] == "query")
+        assert (query["rows"], query["total"]) == (original["rows"], original["total"])
+        assert rebuilt[-1]["status"] == "VERIFIED" and rebuilt[-1]["attempts"] == 1
+
+
+def test_trace_issues_and_findings_rebuild_into_events():
+        issues = [{"check": "code:confidence", "order_id": "L102", "problem": "too high"},
+                  {"check": "llm:coverage", "order_id": None, "problem": "L101 not covered"}]
+        events = [
+                {"kind": "investigator_done", "at": "t", "attempt": 1, "data_requests": 2,
+                 "findings": [{"order_id": "L102", "finding_type": "MISSING_INVOICE_CANDIDATE", "confidence": "high"}]},
+                {"kind": "code_checks", "at": "t", "attempt": 1, "passed": False, "issues": issues},
+                {"kind": "verdict", "at": "t", "attempt": 2, "verdict": "RETRY", "decided_by": "llm", "issues": issues},
+                {"kind": "attempt_started", "at": "t", "attempt": 2, "max_attempts": 3, "retry_issues": issues},
+        ]
+        rebuilt = [trace.from_record(trace.to_record(e, "r")) for e in events]
+        assert rebuilt[0]["findings"] == events[0]["findings"] and rebuilt[0]["data_requests"] == 2
+        assert rebuilt[1]["issues"] == issues and rebuilt[1]["passed"] is False
+        assert (rebuilt[2]["verdict"], rebuilt[2]["decided_by"], rebuilt[2]["issues"]) == ("RETRY", "llm", issues)
+        assert (rebuilt[3]["attempt"], rebuilt[3]["max_attempts"], rebuilt[3]["retry_issues"]) == (2, 3, issues)
+
 # -------------------------------------------------------------- POST /run
 
 @pytest.fixture
@@ -230,6 +262,15 @@ def test_ui_run_streams_events_then_serves_report_and_register(client):
         assert {e["id"] for e in register["entities"]} >= {"order:zetaris:L103", "invoice:zetaris:I104"}
         assert client.get("/api/runs").json()[0]["run_id"] == started["run_id"]
 
+
+
+def test_a_finished_run_opened_later_still_has_its_timeline(client):
+        started = client.post("/api/runs", json={"request": "Check order L103", "sample_mode": True}).json()
+        live = wait_finished(client, started["run_id"])
+        api._runs.clear()  # as after a server restart: only the files on disk remain
+        later = client.get(f"/api/runs/{started['run_id']}").json()
+        assert later["state"] == "finished" and later["report"]["status"] == "VERIFIED"
+        assert later["events"] == live["events"] and later["next"] == len(live["events"])
 
 def test_only_one_run_at_a_time(client):
         api._runs["run-busy"] = api.Run(run_id="run-busy", request="x")
