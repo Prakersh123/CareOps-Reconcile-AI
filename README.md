@@ -112,6 +112,19 @@ Response (abridged; full examples in [`output_examples/`](output_examples/)):
 
 Failures return `{"status": "error", "error": {"type", "message", "recoverable"}, ...}` (HTTP 502), never a crash. A busy server returns 409. A `run_id` that was used before gets a suffix (`example-1-2`), and the response says which id was used. `GET /health` reports the model in use and why.
 
+## Read-only by design
+
+CareOps never changes data. Zetaris is queried with `SELECT` only (Zetaris restricts that endpoint, and the client rejects anything else), and nothing writes to the billing systems.
+
+A request to change data, such as *"Delete invoice I102"*, *"mark I104 as paid"* or `DELETE FROM billing_records ...`, is refused before any agent, model or Zetaris call ([`app/write_guard.py`](app/write_guard.py)). It still gets a normal response, report, trace and UI entry, with status `REFUSED`:
+
+```json
+{"status": "success", "output": {"verification_status": "REFUSED", "findings": [],
+ "summary": "This system is read-only. It investigates lab orders and billing and recommends actions for a human, but it never changes, deletes or creates records in any system. Nothing was changed. ..."}}
+```
+
+Questions about changes (*"Which invoices were cancelled?"*, *"Should I106 be cancelled?"*) still run. The web UI's example list includes one write request to try.
+
 ## Sample mode
 
 `SAMPLE_MODE=true` (or `"options": {"sample_mode": true}`, or the UI toggle) runs without Zetaris, a model or network access:
@@ -150,7 +163,7 @@ Secrets are never logged.
 | Limit | Value |
 |---|---|
 | Zetaris request | 60 s timeout |
-| Model request | 120 s (NVIDIA), 180 s (Nightshift: a model load can take minutes) |
+| Model request | 240 s (NVIDIA), 180 s (Nightshift: a model load can take minutes). If the Critic Agent's call still fails, the run ends `INCONCLUSIVE` with `stop_reason: "critic unavailable (...)"` and keeps the code-checked findings, instead of failing |
 | Attempts | 3 (1 + 2 critic-driven retries) |
 | Whole run | `RUN_TIMEOUT_SECONDS` (600): no new attempt starts after it; the run ends `INCONCLUSIVE` with `stop_reason: "time budget"` |
 | Rows per query | 200; truncation is flagged in the evidence |
@@ -171,28 +184,42 @@ All data is synthetic, created for this project (licence: same as this repositor
 
 | File | Source system it plays | Registered in Zetaris as | Rows |
 |---|---|---|---|
-| [`lab_orders.csv`](data/lab_orders.csv) | lab system (files) | `HOSPITAL_RECON.lab_orders` (Lightning filestore, CSV) | 4 orders, L101–L104 |
-| [`billing_records.sql`](data/billing_records.sql) | billing system (PostgreSQL 16) | `BILLING_POSTGRES.billing_records` (JDBC datasource) | 4 invoices, I101–I104 |
-| [`billing_history.csv`](data/billing_history.csv) | billing history (files) | `HOSPITAL_RECON.billing_history` (Lightning filestore, CSV) | 2 events: I102 cancelled, I104 replaces it |
+| [`lab_orders.csv`](data/lab_orders.csv) | lab system (files) | `HOSPITAL_RECON.lab_orders` (Lightning filestore, CSV) | 8 orders, L101–L108 |
+| [`billing_records.sql`](data/billing_records.sql) | billing system (PostgreSQL 16) | `BILLING_POSTGRES.billing_records` (JDBC datasource) | 9 invoices, I101–I109 |
+| [`billing_history.csv`](data/billing_history.csv) | billing history (files) | `HOSPITAL_RECON.billing_history` (Lightning filestore, CSV) | 3 events: I102 cancelled and replaced by I104; I107 cancelled |
 
-The agents query one Unified Semantic Layer table over all three, `lightning.metastore.careops.CAREOPS_RECONCILIATION.CAREOPS_RECONCILIATION` (11 string columns), activated as `lab_orders LEFT JOIN billing_records ON order_id LEFT JOIN billing_history ON order_id AND invoice_id`. Its five rows are also bundled as [`sample_usl_rows.json`](data/sample_usl_rows.json) for sample mode.
+The agents query one Unified Semantic Layer table over all three, `lightning.metastore.careops.CAREOPS_RECONCILIATION.CAREOPS_RECONCILIATION` (11 string columns), activated as `lab_orders LEFT JOIN billing_records ON order_id LEFT JOIN billing_history ON order_id AND invoice_id`. Its ten rows are also bundled as [`sample_usl_rows.json`](data/sample_usl_rows.json) for sample mode.
+
+The data is messy on purpose, the way exports from separate systems are, and each order tests one case:
+
+| Order | What the data says | Expected finding |
+|---|---|---|
+| L101, L104 | one invoice, issued and paid | RECONCILED |
+| L102 | completed, no invoice anywhere | MISSING_INVOICE_CANDIDATE (medium: it may exist elsewhere) |
+| L103 | I102 cancelled as a duplicate, I104 its replacement, unpaid | UNPAID_REPLACEMENT_INVOICE, not duplicate billing |
+| L105 | two issued invoices, one `PAID`, one `Paid`, no history | POSSIBLE_DUPLICATE_BILLING |
+| L106 | I107 cancelled, no replacement | CANCELLED_WITHOUT_REPLACEMENT |
+| L107 | I108 issued, payment status `unpaid ` (lower case, trailing space) | UNPAID_INVOICE |
+| L108 | its invoice I109 exists, but billing keyed it as `L-108`, so it never joins; the order date is `23/10/2026` | MISSING_INVOICE_CANDIDATE: the join cannot see I109, which is exactly why a missing invoice is never high confidence |
+
+Statuses are compared without case and stray spaces (`PAID` = `Paid` = `paid `); evidence quotes each value exactly as Zetaris returned it.
 
 ### Data setup (one command)
 
 With Zetaris running and admin access to it in `.env` (`ZETARIS_API_KEY`, or `ZETARIS_USERNAME`/`ZETARIS_PASSWORD`):
 
 ```bash
-python scripts/setup_zetaris.py           # sets everything up; safe to re-run (skips what exists)
+python scripts/setup_zetaris.py           # sets everything up; safe to re-run (skips what exists, reloads changed data)
 python scripts/setup_zetaris.py --check   # just check the USL table answers
 ```
 
 It follows the hackathon setup guide's Lightning SQL route, one statement at a time:
 
-1. **Billing system:** starts a `postgres:16-alpine` container on the Zetaris Docker network and loads `data/billing_records.sql`. Its password is `BILLING_DB_PASSWORD`.
+1. **Billing system:** starts a `postgres:16-alpine` container on the Zetaris Docker network (or reuses it) and reloads `data/billing_records.sql` in one transaction, so the table always matches the file. Its password is `BILLING_DB_PASSWORD`.
 2. **Files:** Zetaris cannot read files on your laptop, so the script copies the two CSVs into Zetaris' shared storage, `/home/zetaris/customer-data/shared/careops/`.
-3. **Registration:** `CREATE LIGHTNING DATABASE HOSPITAL_RECON`, then `CREATE LIGHTNING FILESTORE TABLE` for each CSV, then `CREATE DATASOURCE BILLING_POSTGRES` (PostgreSQL JDBC) and `REGISTER DATASOURCE TABLE "billing_records"`.
+3. **Registration:** `CREATE LIGHTNING DATABASE HOSPITAL_RECON`, then `CREATE LIGHTNING FILESTORE TABLE` for each CSV (Zetaris keeps a file table's rows from when it was created, so a table whose CSV has changed is dropped and re-created; the USL over it keeps working), then `CREATE DATASOURCE BILLING_POSTGRES` (PostgreSQL JDBC) and `REGISTER DATASOURCE TABLE "billing_records"`.
 4. **Semantic layer:** `CREATE NAMESPACE lightning.metastore.careops`, then `COMPILE USL CAREOPS_RECONCILIATION`, then `ACTIVATE USL TABLE ... AS SELECT ...` (the join above).
-5. **Check:** prints the five rows and fails if they are not L101/I101, L102/–, L103/I102, L103/I104, L104/I103.
+5. **Check:** prints the ten rows and fails unless the (order, invoice) pairs are exactly the expected ones, including L102 and L108 with no invoice.
 
 `--prefix t_` runs a trial under prefixed names (`t_HOSPITAL_RECON`, `t_careops`, its own container); `--prefix t_ --remove` deletes exactly that trial. `--remove` refuses to run without a prefix.
 
@@ -209,7 +236,7 @@ Forgot this step? The app checks at startup, in `GET /health` (`data.ready`) and
 | [`example_3.json`](input_examples/example_3.json) | [`output_examples/example_3.json`](output_examples/example_3.json) | orders with no invoice |
 | [`example_4_sample_mode.json`](input_examples/example_4_sample_mode.json) | [`output_examples/example_4_sample_mode.json`](output_examples/example_4_sample_mode.json) | the same pipeline offline |
 
-Outputs were produced by `POST /run` on the Docker image, against the live Zetaris setup. [`output_examples/traces/`](output_examples/traces/) has their JSONL traces.
+Outputs were produced by `POST /run` on the Docker image, against the live Zetaris setup. [`output_examples/traces/`](output_examples/traces/) has their JSONL traces. They were recorded on the first four orders (L101–L104), before L105–L108 were added; a run today also reports the new orders.
 
 ## Tests
 
@@ -226,7 +253,8 @@ Follows the hackathon guide's suggested structure.
 ```text
 run.py                      entry point: server, or one run -> JSON
 app/                        orchestrator (LangGraph loop), service (/run contract), api, cli, report,
-                            sample_mode, trace + progress (logs), paths, logging_setup
+                            sample_mode, trace + progress (logs), write_guard (read-only refusal), data_check,
+                            paths, logging_setup
 app/agents/                 data_agent, investigator_agent, critic_agent, critic_checks (code checks)
 app/adapters/               zetaris_client (data layer), meterless (Nightshift provider), llm (provider choice)
 app/engines/                world_model (Meterless engine, Python port), careops_world (the per-run register)
@@ -236,7 +264,7 @@ tests/                      pytest suite, incl. the World Model conformance chec
 input_examples/             example requests (POST /run format)
 output_examples/            their responses, plus traces/
 ui/                         React (Vite) web UI, served by the API at /
-logs/                       stdout copy + logs/trace-<run_id>.jsonl (created at run time)
+logs/                       stdout copy + trace-<run_id>.jsonl + events-<run_id>.jsonl (created at run time)
 Dockerfile, docker-compose.yml, requirements.txt, pyproject.toml + uv.lock, .env.example
 ```
 

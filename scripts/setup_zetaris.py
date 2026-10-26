@@ -6,15 +6,16 @@
     python scripts/setup_zetaris.py --prefix t_ --remove  remove what a prefixed trial created
 
 What it does, following the hackathon setup guide (Lightning SQL, one statement at a time):
-1. Billing system: starts a PostgreSQL container on the Zetaris Docker network and loads
-   data/billing_records.sql into it (or reuses the container if it exists).
+1. Billing system: starts a PostgreSQL container on the Zetaris Docker network (or reuses it) and
+   (re)loads data/billing_records.sql, so the table always matches the file.
 2. Lab and history files: copies data/lab_orders.csv and data/billing_history.csv into Zetaris'
    shared storage (/home/zetaris/customer-data/shared/careops/), since Zetaris cannot read files
    on your laptop.
-3. Registers them: CREATE LIGHTNING DATABASE + FILESTORE TABLEs for the CSVs, CREATE DATASOURCE +
-   REGISTER DATASOURCE TABLE for PostgreSQL.
+3. Registers them: CREATE LIGHTNING DATABASE + FILESTORE TABLEs for the CSVs (re-created when a
+   CSV has changed), CREATE DATASOURCE + REGISTER DATASOURCE TABLE for PostgreSQL.
 4. Unified Semantic Layer: CREATE NAMESPACE, COMPILE USL, ACTIVATE USL TABLE joining the three sources.
-5. Checks that the USL table returns the expected 5 rows.
+5. Checks that the USL table returns the expected 10 rows (8 lab orders; L105 is billed twice,
+   L103 has a cancelled invoice and its replacement, L102 and L108 join to no invoice).
 
 Needs: Docker, a running Zetaris platform, and admin access to it in .env (ZETARIS_API_KEY, or
 ZETARIS_USERNAME/ZETARIS_PASSWORD). The billing database password is BILLING_DB_PASSWORD (default
@@ -43,7 +44,9 @@ SHARED = "/home/zetaris/customer-data/shared"
 USL_TABLE = "CAREOPS_RECONCILIATION"
 COLUMNS = ["order_id", "patient_id", "test_code", "order_date", "lab_status", "invoice_id", "invoice_status",
            "payment_status", "event_type", "event_date", "notes"]
-EXPECTED = {("L101", "I101"), ("L102", None), ("L103", "I102"), ("L103", "I104"), ("L104", "I103")}
+# I109 is keyed 'L-108' in billing, so L108 joins to nothing: the lab system and billing disagree on the id.
+EXPECTED = {("L101", "I101"), ("L102", None), ("L103", "I102"), ("L103", "I104"), ("L104", "I103"),
+            ("L105", "I105"), ("L105", "I106"), ("L106", "I107"), ("L107", "I108"), ("L108", None)}
 
 
 def say(message: str) -> None:
@@ -103,10 +106,26 @@ def ensure_billing_db(name: str, network: str) -> dict[str, str]:
                 count = docker("exec", name, "psql", "-U", settings["user"], "-d", settings["db"], "-Atc",
                                "SELECT count(*) FROM billing_records", check=False)
                 if count.isdigit():
-                        say(f"billing database ready: {count} invoice(s)")
+                        load_billing_records(name, settings)
                         return settings
                 time.sleep(1)
         raise SystemExit("[setup] the billing database did not become ready")
+
+
+def load_billing_records(name: str, settings: dict[str, str]) -> None:
+        """Replace the billing table's rows with data/billing_records.sql, in one transaction.
+
+        The init script only runs when the container is first created, so an existing container
+        would keep old rows after the data file changes.
+        """
+        sql = (ROOT / "data" / "billing_records.sql").read_bytes()
+        empty_first = (b"DO $$ BEGIN IF to_regclass('public.billing_records') IS NOT NULL "
+                       b"THEN TRUNCATE billing_records; END IF; END $$;\n")
+        docker("exec", "-i", name, "psql", "-q", "-v", "ON_ERROR_STOP=1", "-U", settings["user"], "-d", settings["db"],
+               stdin=b"BEGIN;\n" + empty_first + sql + b"\nCOMMIT;\n")
+        count = docker("exec", name, "psql", "-U", settings["user"], "-d", settings["db"], "-Atc",
+                       "SELECT count(*) FROM billing_records")
+        say(f"billing database ready: {count} invoice(s) loaded from data/billing_records.sql")
 
 
 def copy_csvs(driver: str, folder: str) -> None:
@@ -122,6 +141,15 @@ def names(rows: list[dict]) -> set[str]:
         return {str(r.get("name")) for r in rows}
 
 
+def _rows_in(z: ZetarisClient, table: str) -> int:
+        return int(z.select(f"SELECT COUNT(*) AS n FROM {table}").rows[0]["n"])
+
+
+def _rows_in_file(table: str) -> int:
+        lines = (ROOT / "data" / f"{table}.csv").read_text(encoding="utf-8").splitlines()
+        return sum(1 for line in lines[1:] if line.strip())
+
+
 def run(z: ZetarisClient, sql: str, show: str | None = None) -> None:
         say(f"  {show or ' '.join(sql.split())[:160]}")
         z.execute_admin(sql)
@@ -135,6 +163,12 @@ def register(z: ZetarisClient, prefix: str, folder: str, db: dict[str, str]) -> 
                        f'history for CareOps Reconcile AI"')
         tables = names(z.metadata(f"SHOW LIGHTNING TABLES {lightning_db}"))
         for table in ("lab_orders", "billing_history"):
+                if table in tables and _rows_in(z, f"{lightning_db}.{table}") != _rows_in_file(table):
+                        # Zetaris keeps a file table's rows from when it was created (REFRESH TABLE does not
+                        # reload them), so a changed CSV needs the table re-created. The USL query over it
+                        # keeps working.
+                        run(z, f"DROP LIGHTNING DATABASE TABLE {lightning_db}.{table}")
+                        tables.discard(table)
                 if table not in tables:
                         run(z, f'CREATE LIGHTNING FILESTORE TABLE {table} FROM {lightning_db} FORMAT CSV OPTIONS ('
                                f'path "{folder}/{table}.csv", header "true", delimiter ",")')

@@ -17,6 +17,7 @@ from app.agents.investigator_agent import investigator_agent
 from app.adapters.llm import describe_completion
 from app.report import build_report, save_report
 from app.trace import tracing
+from app.write_guard import REFUSAL, write_request
 
 log = logging.getLogger("careops.orchestrator")
 
@@ -39,7 +40,7 @@ class InvestigationState(TypedDict):
         verdict: CriticVerdict | None                # latest critic verdict
         attempt: int                                 # how many times the investigator has run
         status: str                                  # VERIFIED or INCONCLUSIVE, set by finalize
-        stop_reason: str                             # accepted | attempt limit | time budget, set by finalize
+        stop_reason: str                             # accepted | attempt limit | time budget | critic unavailable
         deadline: float                              # time.monotonic() after which no new attempt starts
 
 
@@ -147,7 +148,13 @@ def critique(state: InvestigationState) -> dict:
                         log.info("code checks: all passed against the register")
         if verdict is None:
                 progress.emit("critic_started", attempt=state["attempt"])
-                verdict = review(state["request"], state["retrieved"], state["findings"])
+                try:
+                        verdict = review(state["request"], state["retrieved"], state["findings"])
+                except Exception as exc:  # timeout or API error: end the run honestly instead of crashing it
+                        error = f"{type(exc).__name__}: {str(exc)[:200]}"
+                        log.warning("critic unavailable (%s); findings passed the code checks but are not reviewed", error)
+                        progress.emit("critic_failed", attempt=state["attempt"], error=error)
+                        return {"verdict": None, "stop_reason": f"critic unavailable ({type(exc).__name__})"}
         progress.emit("verdict", attempt=state["attempt"], verdict=verdict.verdict, decided_by=decided_by,
                       issues=[issue.model_dump() for issue in verdict.issues])
         if run_world:
@@ -156,7 +163,9 @@ def critique(state: InvestigationState) -> dict:
 
 
 def finalize(state: InvestigationState) -> dict:
-        if state["verdict"].verdict == "ACCEPT":
+        if state["verdict"] is None:  # the critic could not answer
+                status, reason = "INCONCLUSIVE", state["stop_reason"]
+        elif state["verdict"].verdict == "ACCEPT":
                 status, reason = "VERIFIED", "accepted"
         elif state["attempt"] >= MAX_ATTEMPTS:
                 status, reason = "INCONCLUSIVE", "attempt limit"
@@ -167,6 +176,9 @@ def finalize(state: InvestigationState) -> dict:
 
 
 def route_after_critique(state: InvestigationState) -> str:
+        if state["verdict"] is None:
+                log.warning("route: the critic could not answer -> finalize as INCONCLUSIVE")
+                return "finalize"
         if state["verdict"].verdict == "ACCEPT":
                 log.info("route: critic accepted -> finalize")
                 return "finalize"
@@ -210,6 +222,15 @@ def sample_mode_enabled() -> bool:
         return os.environ.get("SAMPLE_MODE", "").strip().lower() in ("1", "true", "yes", "on")
 
 
+def _refuse(request: str, matched: str) -> dict:
+        """A request to change data: answered with the read-only refusal, no agent or model is started."""
+        log.warning("write request refused (read-only system): %r", matched)
+        progress.emit("write_refused", request=request, matched=matched, message=REFUSAL)
+        return {"request": request, "findings": json.dumps({"findings": []}), "retrieved": [], "verdict": None,
+                "attempt": 0, "status": "REFUSED", "message": REFUSAL,
+                "stop_reason": f"write request refused ({matched!r}): the system is read-only"}
+
+
 def run_investigation(request: str, run_id: str | None = None, sample_mode: bool | None = None) -> dict:
         """Run the full investigate -> critique -> retry loop and return the final state.
 
@@ -229,8 +250,11 @@ def run_investigation(request: str, run_id: str | None = None, sample_mode: bool
                 progress.emit("run_started", run_id=run_id, request=request, max_attempts=MAX_ATTEMPTS,
                               sample_mode=sample_mode)
                 run_world = careops_world.RunWorld(run_id, request)
+                refused = write_request(request)
                 with careops_world.activate(run_world):
-                        if sample_mode:
+                        if refused:
+                                final = _refuse(request, refused)
+                        elif sample_mode:
                                 from app.sample_mode import run_sample
                                 final = run_sample(request, run_world)
                         else:

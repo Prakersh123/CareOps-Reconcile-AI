@@ -71,6 +71,7 @@ def build_report(final: dict, run_world: RunWorld) -> dict:
                 "status": final.get("status"),
                 "attempts": final.get("attempt"),
                 "stop_reason": final.get("stop_reason"),
+                "message": final.get("message"),  # set when the request was refused
                 "sample_mode": bool(final.get("sample_mode")),
                 "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                 "summary": {

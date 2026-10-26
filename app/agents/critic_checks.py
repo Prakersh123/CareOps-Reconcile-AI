@@ -27,6 +27,11 @@ REQUIRED_FIELDS = (
 EMPTY_UNCERTAINTY = {"", "none", "n/a", "na", "null", "unknown"}
 
 
+def norm(value):
+        """Source systems disagree on case and stray spaces ('PAID', 'Paid', 'unpaid '): compare text without them."""
+        return value.strip().upper() if isinstance(value, str) else value
+
+
 def check_findings(findings_json: str, world: WorldModel) -> list[dict]:
         """Return a list of issues ({order_id, check, problem}); empty means every check passed."""
         issues: list[dict] = []
@@ -106,8 +111,8 @@ def _check_finding(finding: dict, register: ZetarisData, add) -> None:
                             f"No replacement is recorded for order {order_id}'s invoices. Retrieve event_type and "
                             f"notes for its invoices; only claim a replacement that the billing history shows.")
         if finding_type == "RECONCILED":
-                paid = [i for i in billed if register.attrs.get(i, {}).get("invoice_status") == "ISSUED"
-                        and register.attrs.get(i, {}).get("payment_status") == "PAID"]
+                paid = [i for i in billed if norm(register.attrs.get(i, {}).get("invoice_status")) == "ISSUED"
+                        and norm(register.attrs.get(i, {}).get("payment_status")) == "PAID"]
                 if not paid:
                         add(order_id, "reconciled_supported",
                             f"RECONCILED needs an ISSUED and PAID invoice for order {order_id}; none was retrieved.")
@@ -131,7 +136,7 @@ def evidence_status(order_id, item, register: ZetarisData) -> tuple[str | None, 
                 return ("evidence_retrieved",
                         f"Evidence {label} {field} = {value!r}: column '{field}' was never retrieved for this record. "
                         f"Retrieve it or remove the evidence item.")
-        if retrieved[field] != value:
+        if norm(retrieved[field]) != norm(value):
                 return ("evidence_value",
                         f"Evidence says {label} {field} = {value!r}, but Zetaris returned {retrieved[field]!r}.")
         return None, "verified"

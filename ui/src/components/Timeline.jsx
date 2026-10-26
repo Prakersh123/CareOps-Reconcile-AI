@@ -100,6 +100,22 @@ function Event({ event }) {
           {event.issues?.length > 0 && <Issues issues={event.issues} />}
         </>
       )
+    case 'critic_failed':
+      return (
+        <>
+          <b>Critic Agent did not answer</b>
+          <p className="risk-text">{event.error}</p>
+          <p className="muted small">The findings passed the code checks; the run ends INCONCLUSIVE instead of failing.</p>
+        </>
+      )
+    case 'write_refused':
+      return (
+        <>
+          <b>Refused: this system is read-only</b>
+          <p className="muted small">The request asks to change data (“{event.matched}”).</p>
+          <p className="risk-text">{event.message}</p>
+        </>
+      )
     case 'run_finished':
       return <><b>Finished: {event.status}</b> <span className="muted small">after {event.attempts} attempt(s)</span></>
     default:

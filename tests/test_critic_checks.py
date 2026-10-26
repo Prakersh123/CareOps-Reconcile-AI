@@ -128,8 +128,14 @@ def test_value_mismatch(world):
         assert "'UNPAID'" in issues[0]["problem"]
 
 
-def test_value_case_must_match(world):
-        bad = with_changes(L103, evidence=[{"invoice_id": "I104", "field": "payment_status", "value": "unpaid"}])
+def test_value_matches_despite_case_and_stray_spaces(world):
+        # Source systems write 'PAID', 'Paid', 'unpaid '; the status is the same, so the evidence is.
+        ok = with_changes(L103, evidence=[{"invoice_id": "I104", "field": "payment_status", "value": " unpaid"}])
+        assert "code:evidence_value" not in checks(run(world, ok))
+
+
+def test_a_different_value_still_fails(world):
+        bad = with_changes(L103, evidence=[{"invoice_id": "I104", "field": "payment_status", "value": "PAID"}])
         assert checks(run(world, bad)) == {"code:evidence_value"}
 
 

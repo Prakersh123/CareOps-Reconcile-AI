@@ -95,3 +95,15 @@ def test_retry_without_a_register_asks_to_retrieve_as_needed(monkeypatch):
         message = fake.calls[0][0].content
         assert "Data already retrieved" not in message
         assert message.endswith("Retrieve more data if needed.")
+
+
+def test_a_critic_that_cannot_answer_ends_the_run_inconclusive_instead_of_failing(monkeypatch):
+        def timeout(*_args):
+                raise TimeoutError("read timed out")
+
+        monkeypatch.setattr(orchestrator, "review", timeout)
+        current = {**state(), "findings": FINDINGS, "attempt": 1, "deadline": float("inf")}
+        current.update(orchestrator.critique(current))
+        assert current["verdict"] is None and current["stop_reason"] == "critic unavailable (TimeoutError)"
+        assert orchestrator.route_after_critique(current) == "finalize"
+        assert orchestrator.finalize(current) == {"status": "INCONCLUSIVE", "stop_reason": "critic unavailable (TimeoutError)"}

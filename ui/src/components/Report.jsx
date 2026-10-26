@@ -88,6 +88,21 @@ function CriticHistory({ history }) {
 export default function Report({ report }) {
   const { summary } = report
   const tone = STATUS_TONE[report.status] || 'muted'
+  if (report.status === 'REFUSED') {
+    // A request to change data: the read-only refusal is the whole answer.
+    return (
+      <div className="report">
+        <section className={`card status-banner tone-border-${tone}`}>
+          <div>
+            <span className={`badge big tone-${tone}`}>{report.status}</span>
+            <span className="muted">{formatTime(report.generated_at)}</span>
+          </div>
+          <p>{report.message}</p>
+          <p className="muted small">No agent was started, and no data was read or changed.</p>
+        </section>
+      </div>
+    )
+  }
   return (
     <div className="report">
       <section className={`card status-banner tone-border-${tone}`}>

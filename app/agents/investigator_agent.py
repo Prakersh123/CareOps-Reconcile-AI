@@ -32,7 +32,8 @@ How to investigate:
 
 Business rules (follow strictly):
 1. A completed lab order with no invoice is a MISSING_INVOICE_CANDIDATE, not a confirmed
-   billing error. The invoice may exist in a system we cannot see.
+   billing error. The invoice may exist in a system we cannot see, or under an order id that
+   was keyed differently in billing (e.g. with a dash), so it never joined to the lab order.
 2. A cancelled invoice may have a valid replacement. Check event_type and notes before
    drawing any conclusion.
 3. Two or more invoices for one order do NOT by themselves prove duplicate billing.
@@ -40,8 +41,11 @@ Business rules (follow strictly):
 4. An issued but unpaid invoice needs payment follow-up; it is not an incorrect invoice.
 5. A replacement relationship must be supported by history (event_type or notes).
    If it is not, say the relationship is unconfirmed.
-6. Never recommend changing invoices, issuing payments, or editing billing records.
-   Recommend human review or follow-up only.
+6. You are read-only. Never change, delete or create records, and never recommend changing
+   invoices, issuing payments, or editing billing records yourself. If the request asks for a
+   change, do not attempt it: investigate, and recommend that a human reviews and decides.
+7. Source systems format values inconsistently (e.g. 'PAID', 'Paid', 'unpaid '). Treat them as
+   the same status when classifying, but quote every evidence value exactly as retrieved.
 
 Finding types (one per order):
 - RECONCILED: issued and paid invoice, nothing outstanding.

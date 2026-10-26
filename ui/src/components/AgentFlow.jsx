@@ -100,6 +100,8 @@ function buildSteps(events, sampleMode) {
         return e.passed
           ? step('critic', ['code-critic'], 'Code checks passed: every evidence item matches the register. Now the Critic Agent reviews', 'ok')
           : step('investigator', ['code-inv'], `Code checks REJECTED the findings → back to the Investigator. ${firstIssue(e.issues)}`, 'reject')
+      case 'critic_failed':
+        return step('critic', [], `Critic Agent did not answer (${clip(e.error, 60)}). The findings passed the code checks, so the run ends INCONCLUSIVE instead of failing`, 'reject')
       case 'critic_started':
         return step('critic', [], 'The Critic Agent judges what code cannot: does each explanation follow from the evidence?')
       case 'verdict':
@@ -110,7 +112,10 @@ function buildSteps(events, sampleMode) {
         }
         if (e.decided_by === 'code') return undefined // already shown by the code_checks step
         return step('investigator', ['critic-inv'], `Critic Agent sent it back → Investigator. ${firstIssue(e.issues)}`, 'reject')
+      case 'write_refused':
+        return step('reviewer', [], `REFUSED: the request asks to change data (“${clip(e.matched, 40)}”). This system is read-only, so no agent was started and nothing was changed`, 'reject')
       case 'run_finished':
+        if (e.status === 'REFUSED') return step('reviewer', [], 'Read-only: nothing was read or changed', 'reject')
         return step('report', [], `Run finished: ${e.status} after ${e.attempts} attempt(s)`, e.status === 'VERIFIED' ? 'ok' : 'normal')
       default:
         return undefined

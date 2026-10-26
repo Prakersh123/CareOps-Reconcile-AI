@@ -106,7 +106,7 @@ textarea {
   background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem;
 }
 textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
-.examples { display: flex; flex-direction: column; gap: 0.3rem; }
+.examples { display: flex; flex-direction: column; gap: 0.3rem; max-height: 13rem; overflow-y: auto; padding-right: 0.25rem; overscroll-behavior: contain; }
 .example {
   text-align: left; font-size: 0.78rem; color: var(--muted); background: transparent;
   border: 1px dashed var(--border); border-radius: 6px; padding: 0.3rem 0.5rem;

@@ -22,6 +22,7 @@ from typing import Iterator
 from app import progress
 from app.logging_setup import short
 from app.paths import logs_dir
+from app.write_guard import REFUSAL
 
 
 def _issues(issues) -> str:
@@ -74,6 +75,9 @@ def to_record(event: dict, run_id: str) -> dict:
                               output_summary="all evidence verified" if event.get("passed") else short(_issues(event.get("issues")), 600),
                               target_agent=None if event.get("passed") else "Investigator",
                               status="success" if event.get("passed") else "rejected")
+        elif kind == "critic_failed":
+                record.update(agent_name="Critic (LLM)", action="review_failed", status="error",
+                              output_summary=short(event.get("error"), 300))
         elif kind == "critic_started":
                 record.update(agent_name="Critic (LLM)", action="review", input_summary="findings + retrieved data")
         elif kind == "verdict":
@@ -81,9 +85,12 @@ def to_record(event: dict, run_id: str) -> dict:
                 record.update(agent_name="Critic (code checks)" if event.get("decided_by") == "code" else "Critic (LLM)",
                               action="verdict", output_summary=f"{event.get('verdict')}" + (f": {short(_issues(event.get('issues')), 600)}" if retry else ""),
                               target_agent="Investigator" if retry else "Orchestrator", status="rejected" if retry else "success")
+        elif kind == "write_refused":
+                record.update(action="refuse_write", status="refused", input_summary=short(event.get("request"), 300),
+                              output_summary=f"read-only system, nothing changed (asked to: {event.get('matched')})")
         elif kind == "run_finished":
                 record.update(action="finish_run", output_summary=f"{event.get('status')} after {event.get('attempts')} attempt(s)",
-                              status="success" if event.get("status") == "VERIFIED" else "partial")
+                              status={"VERIFIED": "success", "REFUSED": "refused"}.get(event.get("status"), "partial"))
         else:
                 record["output_summary"] = short(json.dumps({k: v for k, v in event.items() if k not in ("kind", "at")}, default=str), 300)
         return record
@@ -184,12 +191,17 @@ def from_record(record: dict) -> dict | None:
         elif action == "verify_evidence":
                 passed = record.get("status") == "success"
                 event.update(kind="code_checks", attempt=attempt, passed=passed, issues=[] if passed else _parse_issues(out))
+        elif action == "review_failed":
+                event.update(kind="critic_failed", attempt=attempt, error=out)
         elif action == "review":
                 event.update(kind="critic_started", attempt=attempt)
         elif action == "verdict":
                 verdict, _, issues = out.partition(": ")
                 event.update(kind="verdict", attempt=attempt, verdict=verdict,
                              decided_by="code" if agent == "Critic (code checks)" else "llm", issues=_parse_issues(issues))
+        elif action == "refuse_write":
+                event.update(kind="write_refused", request=inp, matched=_number(r"asked to: (.*)\)$", out, str),
+                             message=REFUSAL)
         elif action == "finish_run":
                 event.update(kind="run_finished", status=out.split(" after ")[0],
                              attempts=_number(r"after (\d+) attempt", out))

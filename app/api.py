@@ -29,17 +29,28 @@ from app.paths import PROJECT_ROOT, home, world_file
 from app.logging_setup import setup_logging
 from app.report import list_reports, load_report
 from app.trace import load_events
+from app.write_guard import write_request
 from app.engines.world_model import WorldModel
 
 log = logging.getLogger("careops.api")
 
 UI_DIST = PROJECT_ROOT / "ui" / "dist"
+# Shows the read-only guard: refused before any agent runs.
+READ_ONLY_DEMO = "Delete the duplicate invoice I106 and mark I108 as paid"
 EXAMPLES = [
         "Investigate completed lab orders with missing invoices or unpaid replacement invoices. Check the available "
         "billing history, explain the evidence, and identify which cases require human review.",
         "Check order L103: are its invoices duplicate billing or a valid replacement?",
         "Which completed lab orders have no invoice at all?",
         "Are all paid invoices correctly issued and linked to a completed order?",
+        "Investigate all completed lab orders. Classify each one, explain the evidence, and identify which cases "
+        "need human review.",
+        "Check order L105: it has two invoices. Is this duplicate billing or a valid replacement?",
+        "Check order L106: its invoice was cancelled. Was a replacement issued?",
+        "Check order L107: is its invoice paid?",
+        "Check order L108: it is completed. Was it billed?",
+        "Check orders L105 and L107. Show the exact payment status of each invoice and explain what needs follow-up.",
+        READ_ONLY_DEMO,
 ]
 
 
@@ -83,10 +94,12 @@ def _claim(run_id: str, request: str, sample_mode: bool) -> Run:
                 return run
 
 
-def _data_status(sample_mode: bool) -> dict:
-        """Readiness of the Zetaris data for this kind of run; sample mode never needs it."""
+def _data_status(sample_mode: bool, request: str = "") -> dict:
+        """Readiness of the Zetaris data for this kind of run; sample mode and refused write requests never need it."""
         if sample_mode:
                 return {"ready": True, "problem": None, "detail": "sample mode: bundled data, Zetaris not used"}
+        if write_request(request):
+                return {"ready": True, "problem": None, "detail": "write request: refused before any data is read"}
         return data_check.check()
 
 
@@ -118,7 +131,7 @@ def run(body: RunBody) -> JSONResponse:
         run_id = body.run_id or new_run_id()
         query = (body.input.query or "").strip() or DEFAULT_REQUEST
         sample_mode = _sample_default(body.options.sample_mode)
-        data = _data_status(sample_mode)
+        data = _data_status(sample_mode, query)
         if not data["ready"]:  # fail in a second instead of after minutes of model calls
                 return JSONResponse(status_code=503, content={
                         "run_id": run_id, "status": "error",
@@ -177,7 +190,7 @@ def start_run(body: StartBody) -> dict:
         from app.orchestrator import DEFAULT_REQUEST, new_run_id
         request = (body.request or "").strip() or DEFAULT_REQUEST
         sample_mode = _sample_default(body.sample_mode)
-        data = _data_status(sample_mode)
+        data = _data_status(sample_mode, request)
         if not data["ready"]:
                 raise HTTPException(503, data["detail"])
         run_record = _claim(new_run_id(), request, sample_mode)

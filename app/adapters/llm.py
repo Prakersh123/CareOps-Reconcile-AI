@@ -24,7 +24,7 @@ DEFAULT_MODEL = "nvidia:nvidia/nemotron-3.5-lightning-30b-a3b"
 # The investigator's final answer (several findings with evidence) plus its reasoning
 # overran 4096 tokens, which comes back as an empty reply with finish_reason=length.
 NVIDIA_MAX_TOKENS = 16384
-NVIDIA_TIMEOUT = 120.0  # per model request; the hosted API sometimes queues
+NVIDIA_TIMEOUT = 240.0  # per model request; the hosted API sometimes queues, and reviewing many orders takes long
 
 
 def get_model(spec: str):

@@ -57,11 +57,19 @@ def live_client():
     client.close()
 
 
-def test_usl_returns_five_rows(live_client):
+def test_usl_returns_ten_rows(live_client):
     result = live_client.select(f"SELECT * FROM {USL_TABLE}")
-    assert result.total_count == 5
+    assert result.total_count == 10
     assert not result.truncated
-    assert {r["order_id"] for r in result.rows} == {"L101", "L102", "L103", "L104"}
+    assert {r["order_id"] for r in result.rows} == {f"L10{i}" for i in range(1, 9)}
+
+
+def test_messy_billing_keys_and_statuses_come_through_as_stored(live_client):
+    rows = live_client.select(f"SELECT order_id, invoice_id, payment_status FROM {USL_TABLE} "
+                              f"WHERE order_id IN ('L105', 'L107', 'L108')").rows
+    status = {r["invoice_id"]: r["payment_status"] for r in rows}
+    assert status["I106"] == "Paid" and status["I108"] == "unpaid "
+    assert [r["invoice_id"] for r in rows if r["order_id"] == "L108"] == [None]  # billed as 'L-108'
 
 
 def test_l103_has_cancelled_and_replacement(live_client):

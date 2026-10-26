@@ -116,7 +116,10 @@ def test_sample_rules_classify_every_bundled_order():
                 by_order.setdefault(row["order_id"], []).append(row)
         types = {o: classify(o, rows)["finding_type"] for o, rows in by_order.items()}
         assert types == {"L101": "RECONCILED", "L102": "MISSING_INVOICE_CANDIDATE",
-                         "L103": "UNPAID_REPLACEMENT_INVOICE", "L104": "RECONCILED"}
+                         "L103": "UNPAID_REPLACEMENT_INVOICE", "L104": "RECONCILED",
+                         "L105": "POSSIBLE_DUPLICATE_BILLING",  # two issued invoices, one 'Paid'
+                         "L106": "CANCELLED_WITHOUT_REPLACEMENT", "L107": "UNPAID_INVOICE",  # 'unpaid '
+                         "L108": "MISSING_INVOICE_CANDIDATE"}  # its invoice is keyed 'L-108' in billing
 
 
 @pytest.mark.parametrize("rows, expected", [

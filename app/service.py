@@ -59,6 +59,8 @@ def available_run_id(run_id: str) -> str:
 
 def summarize(report: dict) -> str:
         """One readable paragraph: verdict, counts, and the orders that need a human."""
+        if report["status"] == "REFUSED":
+                return report["message"]
         summary = report["summary"]
         flagged = [f"{f['order_id']} ({f['finding_type'].replace('_', ' ').lower()})"
                    for f in report["findings"] if f.get("requires_human_review")]

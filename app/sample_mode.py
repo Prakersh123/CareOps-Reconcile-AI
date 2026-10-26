@@ -18,7 +18,7 @@ from pathlib import Path
 from app import data_check, progress
 from app.engines.careops_world import RunWorld
 from app.paths import PROJECT_ROOT
-from app.agents.critic_checks import check_findings
+from app.agents.critic_checks import check_findings, norm
 
 SAMPLE_FILE = PROJECT_ROOT / "data" / "sample_usl_rows.json"
 USL_TABLE = data_check.USL_TABLE
@@ -52,14 +52,14 @@ def classify(order_id: str, rows: list[dict]) -> dict:
                 match = _REPLACEMENT_NOTE.search(r.get("notes") or "")
                 if r.get("event_type") == "REPLACEMENT_INVOICE_CREATED" and match:
                         replaced[r["invoice_id"]] = match.group(1)
-        issued = [i for i, r in invoices.items() if r.get("invoice_status") == "ISSUED"]
-        cancelled = [i for i, r in invoices.items() if r.get("invoice_status") == "CANCELLED"]
+        issued = [i for i, r in invoices.items() if norm(r.get("invoice_status")) == "ISSUED"]
+        cancelled = [i for i, r in invoices.items() if norm(r.get("invoice_status")) == "CANCELLED"]
         ids = sorted(invoices)
         evidence = [item for i in ids for item in _evidence(invoices[i])]
 
         if replaced:
                 new, old = next(iter(replaced.items()))
-                if invoices[new].get("payment_status") == "PAID":
+                if norm(invoices[new].get("payment_status")) == "PAID":
                         return {**base, "finding_type": "RECONCILED", "invoice_ids": ids, "evidence": evidence,
                                 "requires_human_review": False,
                                 "explanation": f"{old} was cancelled and replaced by {new}, which is issued and paid.",
@@ -77,7 +77,7 @@ def classify(order_id: str, rows: list[dict]) -> dict:
                         "recommended_action": "Review the invoices with the billing team before any correction."}
         if issued:
                 invoice = invoices[issued[0]]
-                if invoice.get("payment_status") == "PAID":
+                if norm(invoice.get("payment_status")) == "PAID":
                         return {**base, "finding_type": "RECONCILED", "invoice_ids": ids,
                                 "evidence": _evidence(invoice, ("invoice_status", "payment_status")),
                                 "requires_human_review": False,

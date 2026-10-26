@@ -6,7 +6,8 @@ current context receives the event: the web UI's timeline and the run's JSONL tr
 listeners live in a context variable, so tools called deep inside the agents reach them.
 
 Event kinds: run_started, attempt_started, data_request, query, query_failed, world_model,
-llm_call, investigator_done, reminder, code_checks, critic_started, verdict, run_finished.
+llm_call, investigator_done, reminder, code_checks, critic_started, critic_failed, verdict,
+write_refused, run_finished.
 """
 
 from __future__ import annotations

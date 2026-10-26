@@ -13,7 +13,7 @@ export function findingType(type) {
   return FINDING_TYPES[type] || { label: type || 'Unknown', tone: 'muted' }
 }
 
-export const STATUS_TONE = { VERIFIED: 'ok', INCONCLUSIVE: 'warn', failed: 'risk', running: 'info' }
+export const STATUS_TONE = { VERIFIED: 'ok', INCONCLUSIVE: 'warn', REFUSED: 'risk', failed: 'risk', running: 'info' }
 
 export function shortId(id) {
   return String(id ?? '').split(':').pop()
