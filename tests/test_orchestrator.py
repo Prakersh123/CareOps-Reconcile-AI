@@ -107,3 +107,12 @@ def test_a_critic_that_cannot_answer_ends_the_run_inconclusive_instead_of_failin
         assert current["verdict"] is None and current["stop_reason"] == "critic unavailable (TimeoutError)"
         assert orchestrator.route_after_critique(current) == "finalize"
         assert orchestrator.finalize(current) == {"status": "INCONCLUSIVE", "stop_reason": "critic unavailable (TimeoutError)"}
+
+
+def test_findings_wrapped_in_a_code_block_or_words_are_still_read(monkeypatch):
+        fenced = ai(f"Here are the findings:\n```json\n{FINDINGS}\n```\nLet me know if you need more.")
+        fake = FakeInvestigator(fenced)
+        monkeypatch.setattr(orchestrator, "investigator_agent", fake)
+        result = orchestrator.investigate(state())
+        assert json.loads(result["findings"]) == json.loads(FINDINGS)
+        assert len(fake.calls) == 1  # no reminder needed

@@ -35,7 +35,9 @@ a. The invoice_id must be a real invoice ID that appears in an invoice_id column
 b. The field must be a column that was actually returned by one of the queries.
    If the query did not select that column, the evidence value is unsupported,
    even if it is null.
-c. The value must exactly equal that row's value for that field (same case, same text).
+c. The value must equal that row's value for that field. The source systems write the same
+   status in different ways ('PAID', 'Paid', 'unpaid '): values that differ only in letter case
+   or surrounding spaces are the SAME value, so never report that as a problem.
 d. Every ID in invoice_ids must appear in the retrieved rows for that order.
 Any evidence item that fails a, b, c or d is a "support" problem: name the item and say
 what the Investigator must retrieve or correct.

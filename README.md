@@ -231,12 +231,12 @@ Forgot this step? The app checks at startup, in `GET /health` (`data.ready`) and
 
 | Input | Output | Shows |
 |---|---|---|
-| [`example_1.json`](input_examples/example_1.json) | [`output_examples/example_1.json`](output_examples/example_1.json) | the full reconciliation |
+| [`example_1.json`](input_examples/example_1.json) | [`output_examples/example_1.json`](output_examples/example_1.json) | the full reconciliation: all 8 orders, VERIFIED after the code checks sent back two overconfident missing-invoice claims |
 | [`example_2.json`](input_examples/example_2.json) | [`output_examples/example_2.json`](output_examples/example_2.json) | L103: replacement, not duplicate billing |
-| [`example_3.json`](input_examples/example_3.json) | [`output_examples/example_3.json`](output_examples/example_3.json) | orders with no invoice |
+| [`example_3.json`](input_examples/example_3.json) | [`output_examples/example_3.json`](output_examples/example_3.json) | orders with no invoice: L102, and L108 whose invoice is keyed `L-108` |
 | [`example_4_sample_mode.json`](input_examples/example_4_sample_mode.json) | [`output_examples/example_4_sample_mode.json`](output_examples/example_4_sample_mode.json) | the same pipeline offline |
 
-Outputs were produced by `POST /run` on the Docker image, against the live Zetaris setup. [`output_examples/traces/`](output_examples/traces/) has their JSONL traces. They were recorded on the first four orders (L101–L104), before L105–L108 were added; a run today also reports the new orders.
+Outputs were produced by `POST /run` on the Docker image, against the live Zetaris setup. [`output_examples/traces/`](output_examples/traces/) has their JSONL traces.
 
 ## Tests
 

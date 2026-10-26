@@ -1,1 +1,423 @@
-{"run_id":"example-1","status":"success","output":{"summary":"VERIFIED after 2 attempt(s): 2 order(s) reviewed, 13/13 evidence items verified against Zetaris. Needs human review: L102 (missing invoice candidate), L103 (unpaid replacement invoice).","verification_status":"VERIFIED","stop_reason":"accepted","sample_mode":false,"findings":[{"order_id":"L102","finding_type":"MISSING_INVOICE_CANDIDATE","invoice_ids":[],"evidence":[{"invoice_id":null,"field":"invoice_id","value":null,"verified":true,"check":null,"detail":"verified"},{"invoice_id":null,"field":"invoice_status","value":null,"verified":true,"check":null,"detail":"verified"},{"invoice_id":null,"field":"payment_status","value":null,"verified":true,"check":null,"detail":"verified"},{"invoice_id":null,"field":"notes","value":null,"verified":true,"check":null,"detail":"verified"},{"invoice_id":null,"field":"event_type","value":null,"verified":true,"check":null,"detail":"verified"}],"explanation":"Order L102 is completed but has no invoice recorded (invoice_id is null). No billing history indicates an invoice exists. The invoice may exist in a system not visible to this investigation.","confidence":"medium","uncertainty":"The invoice may exist in a system not visible to this investigation.","recommended_action":"Follow up with the billing team to locate the missing invoice for order L102.","requires_human_review":true},{"order_id":"L103","finding_type":"UNPAID_REPLACEMENT_INVOICE","invoice_ids":["I102","I104"],"evidence":[{"invoice_id":"I102","field":"invoice_status","value":"CANCELLED","verified":true,"check":null,"detail":"verified"},{"invoice_id":"I102","field":"payment_status","value":"UNPAID","verified":true,"check":null,"detail":"verified"},{"invoice_id":"I102","field":"notes","value":"Cancelled as duplicate","verified":true,"check":null,"detail":"verified"},{"invoice_id":"I102","field":"event_type","value":"INVOICE_CANCELLED","verified":true,"check":null,"detail":"verified"},{"invoice_id":"I104","field":"invoice_status","value":"ISSUED","verified":true,"check":null,"detail":"verified"},{"invoice_id":"I104","field":"payment_status","value":"UNPAID","verified":true,"check":null,"detail":"verified"},{"invoice_id":"I104","field":"notes","value":"Replacement for I102","verified":true,"check":null,"detail":"verified"},{"invoice_id":"I104","field":"event_type","value":"REPLACEMENT_INVOICE_CREATED","verified":true,"check":null,"detail":"verified"}],"explanation":"Invoice I102 for order L103 was cancelled as a duplicate (event_type INVOICE_CANCELLED, notes 'Cancelled as duplicate'). A replacement invoice I104 was issued (event_type REPLACEMENT_INVOICE_CREATED, notes 'Replacement for I102') but remains unpaid (payment_status UNPAID). Therefore the order has one replacement invoice that is outstanding.","confidence":"high","uncertainty":"A payment for I104 may be recorded later; the replacement relationship is supported by the event_type and notes.","recommended_action":"Check payment status of replacement invoice I104 with the billing team.","requires_human_review":true}],"recommendations":[{"order_id":"L102","finding_type":"MISSING_INVOICE_CANDIDATE","action":"Follow up with the billing team to locate the missing invoice for order L102.","requires_human_review":true},{"order_id":"L103","finding_type":"UNPAID_REPLACEMENT_INVOICE","action":"Check payment status of replacement invoice I104 with the billing team.","requires_human_review":true}],"critic_history":[{"number":1,"verdict":"RETRY","decided_by":"code","issues":[{"order_id":"L102","check":"code:confidence","problem":"A missing invoice is unverified (it may exist in a system we cannot see), so confidence must be medium or low, not high."}]},{"number":2,"verdict":"ACCEPT","decided_by":"llm","issues":[]}],"artifacts":["reports/example-1.json",".world/example-1.json","logs/trace-example-1.jsonl"]},"agents":[{"name":"Orchestrator","role":"LangGraph state machine: runs attempts, routes critic feedback back to the investigator, stops at 3 attempts or the run's time budget"},{"name":"Investigator","role":"Plans the data it needs, asks the Data Agent in plain language, writes evidence-backed findings under the reconciliation business rules"},{"name":"Data Agent","role":"Turns requests into read-only SQL over the Zetaris USL table and returns the raw rows unchanged"},{"name":"World Model (Meterless engine)","role":"Per-run register of every Zetaris row, derived link, finding and verdict, with provenance and an audit log"},{"name":"Critic (code checks)","role":"Verifies every evidence item against the register; on failure sends concrete fixes back and skips the LLM critic"},{"name":"Critic (LLM)","role":"Judges logic, candidate vs confirmed, replacement vs duplicate and coverage; ACCEPT or RETRY"}],"trace_id":"example-1","log_file":"logs/trace-example-1.jsonl","execution_time_seconds":288.5}
+{
+  "run_id": "example-1",
+  "status": "success",
+  "output": {
+    "summary": "VERIFIED after 2 attempt(s): 8 order(s) reviewed, 24/24 evidence items verified against Zetaris. Needs human review: L102 (missing invoice candidate), L103 (unpaid replacement invoice), L105 (possible duplicate billing), L106 (cancelled without replacement), L107 (unpaid invoice), L108 (missing invoice candidate).",
+    "verification_status": "VERIFIED",
+    "stop_reason": "accepted",
+    "sample_mode": false,
+    "findings": [
+      {
+        "order_id": "L101",
+        "finding_type": "RECONCILED",
+        "invoice_ids": [
+          "I101"
+        ],
+        "evidence": [
+          {
+            "invoice_id": "I101",
+            "field": "invoice_status",
+            "value": "ISSUED",
+            "verified": true,
+            "check": null,
+            "detail": "verified"
+          },
+          {
+            "invoice_id": "I101",
+            "field": "payment_status",
+            "value": "PAID",
+            "verified": true,
+            "check": null,
+            "detail": "verified"
+          }
+        ],
+        "explanation": "Invoice I101 is issued and paid; no outstanding issues.",
+        "confidence": "high",
+        "uncertainty": "None",
+        "recommended_action": "None",
+        "requires_human_review": false
+      },
+      {
+        "order_id": "L102",
+        "finding_type": "MISSING_INVOICE_CANDIDATE",
+        "invoice_ids": [],
+        "evidence": [
+          {
+            "invoice_id": null,
+            "field": "invoice_id",
+            "value": null,
+            "verified": true,
+            "check": null,
+            "detail": "verified"
+          }
+        ],
+        "explanation": "Completed lab order L102 has no invoice found in the data. This is a MISSING_INVOICE_CANDIDATE; the invoice may exist in another system or under a different order key.",
+        "confidence": "medium",
+        "uncertainty": "The invoice may exist in a system we cannot see, or under an order id that was keyed differently in billing. Confidence is medium because the absence of an invoice is unverified.",
+        "recommended_action": "Verify with billing team whether invoice exists under a different order key or system.",
+        "requires_human_review": true
+      },
+      {
+        "order_id": "L103",
+        "finding_type": "UNPAID_REPLACEMENT_INVOICE",
+        "invoice_ids": [
+          "I102",
+          "I104"
+        ],
+        "evidence": [
+          {
+            "invoice_id": "I102",
+            "field": "invoice_status",
+            "value": "CANCELLED",
+            "verified": true,
+            "check": null,
+            "detail": "verified"
+          },
+          {
+            "invoice_id": "I102",
+            "field": "payment_status",
+            "value": "UNPAID",
+            "verified": true,
+            "check": null,
+            "detail": "verified"
+          },
+          {
+            "invoice_id": "I102",
+            "field": "event_type",
+            "value": "INVOICE_CANCELLED",
+            "verified": true,
+            "check": null,
+            "detail": "verified"
+          },
+          {
+            "invoice_id": "I102",
+            "field": "notes",
+            "value": "Cancelled as duplicate",
+            "verified": true,
+            "check": null,
+            "detail": "verified"
+          },
+          {
+            "invoice_id": "I104",
+            "field": "invoice_status",
+            "value": "ISSUED",
+            "verified": true,
+            "check": null,
+            "detail": "verified"
+          },
+          {
+            "invoice_id": "I104",
+            "field": "payment_status",
+            "value": "UNPAID",
+            "verified": true,
+            "check": null,
+            "detail": "verified"
+          },
+          {
+            "invoice_id": "I104",
+            "field": "event_type",
+            "value": "REPLACEMENT_INVOICE_CREATED",
+            "verified": true,
+            "check": null,
+            "detail": "verified"
+          },
+          {
+            "invoice_id": "I104",
+            "field": "notes",
+            "value": "Replacement for I102",
+            "verified": true,
+            "check": null,
+            "detail": "verified"
+          }
+        ],
+        "explanation": "Invoice I102 was cancelled as duplicate. History shows I104 replaced it; I104 is issued but not yet paid, so the order is billed once with a cancelled original and an unpaid replacement.",
+        "confidence": "high",
+        "uncertainty": "A payment for I104 may exist that has not been recorded yet.",
+        "recommended_action": "Check payment status of I104 with the billing team.",
+        "requires_human_review": true
+      },
+      {
+        "order_id": "L104",
+        "finding_type": "RECONCILED",
+        "invoice_ids": [
+          "I103"
+        ],
+        "evidence": [
+          {
+            "invoice_id": "I103",
+            "field": "invoice_status",
+            "value": "ISSUED",
+            "verified": true,
+            "check": null,
+            "detail": "verified"
+          },
+          {
+            "invoice_id": "I103",
+            "field": "payment_status",
+            "value": "PAID",
+            "verified": true,
+            "check": null,
+            "detail": "verified"
+          }
+        ],
+        "explanation": "Invoice I103 is issued and paid; no outstanding issues.",
+        "confidence": "high",
+        "uncertainty": "None",
+        "recommended_action": "None",
+        "requires_human_review": false
+      },
+      {
+        "order_id": "L105",
+        "finding_type": "POSSIBLE_DUPLICATE_BILLING",
+        "invoice_ids": [
+          "I105",
+          "I106"
+        ],
+        "evidence": [
+          {
+            "invoice_id": "I105",
+            "field": "invoice_status",
+            "value": "ISSUED",
+            "verified": true,
+            "check": null,
+            "detail": "verified"
+          },
+          {
+            "invoice_id": "I105",
+            "field": "payment_status",
+            "value": "PAID",
+            "verified": true,
+            "check": null,
+            "detail": "verified"
+          },
+          {
+            "invoice_id": "I106",
+            "field": "invoice_status",
+            "value": "ISSUED",
+            "verified": true,
+            "check": null,
+            "detail": "verified"
+          },
+          {
+            "invoice_id": "I106",
+            "field": "payment_status",
+            "value": "Paid",
+            "verified": true,
+            "check": null,
+            "detail": "verified"
+          }
+        ],
+        "explanation": "Order L105 has two invoices (I105 and I106) both with issued status and paid payment status, but no history (event_type or notes) explains why two invoices exist or their relationship. Without supporting history, possible duplicate billing cannot be ruled out.",
+        "confidence": "medium",
+        "uncertainty": "No cancellation or replacement history found; the relationship between I105 and I106 is unconfirmed.",
+        "recommended_action": "Human review needed to determine if I105 and I106 represent duplicate billing or legitimate separate billing.",
+        "requires_human_review": true
+      },
+      {
+        "order_id": "L106",
+        "finding_type": "CANCELLED_WITHOUT_REPLACEMENT",
+        "invoice_ids": [
+          "I107"
+        ],
+        "evidence": [
+          {
+            "invoice_id": "I107",
+            "field": "invoice_status",
+            "value": "CANCELLED",
+            "verified": true,
+            "check": null,
+            "detail": "verified"
+          },
+          {
+            "invoice_id": "I107",
+            "field": "payment_status",
+            "value": "UNPAID",
+            "verified": true,
+            "check": null,
+            "detail": "verified"
+          },
+          {
+            "invoice_id": "I107",
+            "field": "event_type",
+            "value": "INVOICE_CANCELLED",
+            "verified": true,
+            "check": null,
+            "detail": "verified"
+          },
+          {
+            "invoice_id": "I107",
+            "field": "notes",
+            "value": "Cancelled after insurance change; no new invoice",
+            "verified": true,
+            "check": null,
+            "detail": "verified"
+          }
+        ],
+        "explanation": "Invoice I107 was cancelled after an insurance change, and no replacement invoice was issued.",
+        "confidence": "high",
+        "uncertainty": "None",
+        "recommended_action": "No action required unless replacement is needed; flag for audit if pattern emerges.",
+        "requires_human_review": true
+      },
+      {
+        "order_id": "L107",
+        "finding_type": "UNPAID_INVOICE",
+        "invoice_ids": [
+          "I108"
+        ],
+        "evidence": [
+          {
+            "invoice_id": "I108",
+            "field": "invoice_status",
+            "value": "ISSUED",
+            "verified": true,
+            "check": null,
+            "detail": "verified"
+          },
+          {
+            "invoice_id": "I108",
+            "field": "payment_status",
+            "value": "unpaid ",
+            "verified": true,
+            "check": null,
+            "detail": "verified"
+          }
+        ],
+        "explanation": "Invoice I108 was issued with payment status unpaid (note trailing space); no cancellation or replacement history. Requires payment follow-up.",
+        "confidence": "high",
+        "uncertainty": "Payment for I108 may have been recorded but not updated; trailing space in payment_status indicates possible data inconsistency.",
+        "recommended_action": "Follow up on payment status of I108 with billing team.",
+        "requires_human_review": true
+      },
+      {
+        "order_id": "L108",
+        "finding_type": "MISSING_INVOICE_CANDIDATE",
+        "invoice_ids": [],
+        "evidence": [
+          {
+            "invoice_id": null,
+            "field": "invoice_id",
+            "value": null,
+            "verified": true,
+            "check": null,
+            "detail": "verified"
+          }
+        ],
+        "explanation": "Completed lab order L108 has no invoice found in the data. This is a MISSING_INVOICE_CANDIDATE; the invoice may exist in another system or under a different order key.",
+        "confidence": "medium",
+        "uncertainty": "The invoice may exist in a system we cannot see, or under an order id that was keyed differently in billing. Confidence is medium because the absence of an invoice is unverified.",
+        "recommended_action": "Verify with billing team whether invoice exists under a different order key or system.",
+        "requires_human_review": true
+      }
+    ],
+    "recommendations": [
+      {
+        "order_id": "L101",
+        "finding_type": "RECONCILED",
+        "action": "None",
+        "requires_human_review": false
+      },
+      {
+        "order_id": "L102",
+        "finding_type": "MISSING_INVOICE_CANDIDATE",
+        "action": "Verify with billing team whether invoice exists under a different order key or system.",
+        "requires_human_review": true
+      },
+      {
+        "order_id": "L103",
+        "finding_type": "UNPAID_REPLACEMENT_INVOICE",
+        "action": "Check payment status of I104 with the billing team.",
+        "requires_human_review": true
+      },
+      {
+        "order_id": "L104",
+        "finding_type": "RECONCILED",
+        "action": "None",
+        "requires_human_review": false
+      },
+      {
+        "order_id": "L105",
+        "finding_type": "POSSIBLE_DUPLICATE_BILLING",
+        "action": "Human review needed to determine if I105 and I106 represent duplicate billing or legitimate separate billing.",
+        "requires_human_review": true
+      },
+      {
+        "order_id": "L106",
+        "finding_type": "CANCELLED_WITHOUT_REPLACEMENT",
+        "action": "No action required unless replacement is needed; flag for audit if pattern emerges.",
+        "requires_human_review": true
+      },
+      {
+        "order_id": "L107",
+        "finding_type": "UNPAID_INVOICE",
+        "action": "Follow up on payment status of I108 with billing team.",
+        "requires_human_review": true
+      },
+      {
+        "order_id": "L108",
+        "finding_type": "MISSING_INVOICE_CANDIDATE",
+        "action": "Verify with billing team whether invoice exists under a different order key or system.",
+        "requires_human_review": true
+      }
+    ],
+    "critic_history": [
+      {
+        "number": 1,
+        "verdict": "RETRY",
+        "decided_by": "code",
+        "issues": [
+          {
+            "order_id": "L102",
+            "check": "code:confidence",
+            "problem": "A missing invoice is unverified (it may exist in a system we cannot see), so confidence must be medium or low, not high."
+          },
+          {
+            "order_id": "L108",
+            "check": "code:confidence",
+            "problem": "A missing invoice is unverified (it may exist in a system we cannot see), so confidence must be medium or low, not high."
+          }
+        ]
+      },
+      {
+        "number": 2,
+        "verdict": "ACCEPT",
+        "decided_by": "llm",
+        "issues": []
+      }
+    ],
+    "artifacts": [
+      "reports/example-1.json",
+      ".world/example-1.json",
+      "logs/trace-example-1.jsonl"
+    ]
+  },
+  "agents": [
+    {
+      "name": "Orchestrator",
+      "role": "LangGraph state machine: runs attempts, routes critic feedback back to the investigator, stops at 3 attempts or the run's time budget"
+    },
+    {
+      "name": "Investigator",
+      "role": "Plans the data it needs, asks the Data Agent in plain language, writes evidence-backed findings under the reconciliation business rules"
+    },
+    {
+      "name": "Data Agent",
+      "role": "Turns requests into read-only SQL over the Zetaris USL table and returns the raw rows unchanged"
+    },
+    {
+      "name": "World Model (Meterless engine)",
+      "role": "Per-run register of every Zetaris row, derived link, finding and verdict, with provenance and an audit log"
+    },
+    {
+      "name": "Critic (code checks)",
+      "role": "Verifies every evidence item against the register; on failure sends concrete fixes back and skips the LLM critic"
+    },
+    {
+      "name": "Critic (LLM)",
+      "role": "Judges logic, candidate vs confirmed, replacement vs duplicate and coverage; ACCEPT or RETRY"
+    }
+  ],
+  "trace_id": "example-1",
+  "log_file": "logs/trace-example-1.jsonl",
+  "execution_time_seconds": 426.4
+}

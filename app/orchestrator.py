@@ -2,6 +2,7 @@ import json
 import logging
 import operator
 import os
+import re
 import time
 from datetime import datetime
 from typing import Annotated, TypedDict
@@ -42,6 +43,15 @@ class InvestigationState(TypedDict):
         status: str                                  # VERIFIED or INCONCLUSIVE, set by finalize
         stop_reason: str                             # accepted | attempt limit | time budget | critic unavailable
         deadline: float                              # time.monotonic() after which no new attempt starts
+
+
+def _json_object(text: str) -> str:
+        """The findings JSON inside a reply that wrapped it in a ```json block or added words around it."""
+        if _findings_list(text) is not None:
+                return text
+        fenced = re.search(r"```(?:json)?\s*(\{.*\})\s*```", text, re.DOTALL)
+        candidate = fenced.group(1) if fenced else text[text.find("{"):text.rfind("}") + 1]
+        return candidate if candidate and _findings_list(candidate) is not None else text
 
 
 def _findings_list(findings: str) -> list | None:
@@ -105,7 +115,7 @@ def investigate(state: InvestigationState) -> dict:
         result = investigator_agent.invoke({"messages": [HumanMessage(content=message)]})
         log.info("investigator done in %.1fs: %d data request(s); %s", time.monotonic() - started,
                  len(collect_retrieved_data(result["messages"])), describe_completion(result["messages"][-1]))
-        if _findings_list(result["messages"][-1].content) is None:
+        if _findings_list(_json_object(result["messages"][-1].content)) is None:
                 # Usually the reply ran out of tokens and came back empty. The investigator already has its
                 # data in this conversation, so ask once more for just the JSON instead of a full retry.
                 log.warning("no findings JSON in the reply; asking the investigator once more for the JSON only")
@@ -115,7 +125,7 @@ def investigate(state: InvestigationState) -> dict:
                         {"messages": result["messages"] + [HumanMessage(content=FINDINGS_REMINDER)]})
                 log.info("reminder answered in %.1fs; %s", time.monotonic() - started,
                          describe_completion(result["messages"][-1]))
-        findings = result["messages"][-1].content
+        findings = _json_object(result["messages"][-1].content)
         retrieved = collect_retrieved_data(result["messages"])
         _log_findings(findings)
         parsed = _findings_list(findings)
